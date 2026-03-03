@@ -1,0 +1,6 @@
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Explicitly ignore doc-level Finder metadata
+doc/.DS_Store
