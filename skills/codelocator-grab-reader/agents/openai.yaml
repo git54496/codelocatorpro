@@ -1,0 +1,4 @@
+interface:
+  display_name: "CodeLocator Grab Reader"
+  short_description: "Read and analyze CodeLocator grab files"
+  default_prompt: "读取并分析 CodeLocator Grab Context，输出结构化结论与证据。"

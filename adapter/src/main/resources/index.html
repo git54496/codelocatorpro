@@ -1,0 +1,779 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CodeLocator Viewer</title>
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --panel: #ffffff;
+      --line: #d9e1ee;
+      --text: #182133;
+      --muted: #607089;
+      --accent: #0b84f3;
+      --accent-soft: rgba(11,132,243,0.16);
+      --left-pane-width: 340px;
+      --right-pane-width: 340px;
+      --splitter-width: 10px;
+    }
+    body { margin: 0; background: radial-gradient(circle at 20% -10%, #d7ecff, #f4f7fb 40%); color: var(--text); font-family: "SF Pro Text", "PingFang SC", sans-serif; }
+    .top { display:flex; gap:8px; align-items:center; padding:12px 16px; border-bottom:1px solid var(--line); background:var(--panel); position: sticky; top:0; z-index:2; }
+    .top input, .top select { border:1px solid var(--line); border-radius:8px; padding:8px 10px; background:#fff; }
+    .top button { border:1px solid #1b75d0; background:#0b84f3; color:#fff; border-radius:8px; padding:8px 12px; cursor:pointer; }
+    .layout { display:grid; grid-template-columns: var(--left-pane-width) var(--splitter-width) minmax(320px, 1fr) var(--splitter-width) var(--right-pane-width); gap: 0; padding: 12px; height: calc(100vh - 64px); box-sizing: border-box; }
+    .panel { background: var(--panel); border:1px solid var(--line); border-radius:12px; overflow:auto; }
+    .splitter {
+      position: relative;
+      cursor: col-resize;
+      user-select: none;
+      touch-action: none;
+    }
+    .splitter::before {
+      content: "";
+      position: absolute;
+      top: 10px;
+      bottom: 10px;
+      left: calc(50% - 1px);
+      width: 2px;
+      border-radius: 99px;
+      background: #c8d4e6;
+    }
+    .splitter:hover::before { background: #9fb3ce; }
+    body.is-resizing { cursor: col-resize; user-select: none; }
+    #tree { padding: 10px; font-size: 13px; overflow:auto; }
+    #tree ul { list-style:none; padding-left:16px; margin:0; width:max-content; min-width:100%; }
+    .tree-row { display:flex; align-items:center; gap:6px; padding: 4px 6px; border-radius: 6px; cursor:pointer; white-space: nowrap; width:max-content; min-width:100%; box-sizing:border-box; }
+    .tree-row:hover { background:#edf4ff; }
+    .tree-row.selected { background: var(--accent-soft); border-left:3px solid var(--accent); }
+    .twisty { width:12px; color:var(--muted); user-select:none; text-align:center; cursor:pointer; font-size:11px; }
+    .twisty.placeholder { visibility:hidden; cursor:default; }
+    .tree-label { white-space:nowrap; }
+    #canvasWrap { position:relative; overflow:hidden; background:#e8eef7; display:flex; align-items:center; justify-content:center; }
+    #stage { position:relative; flex:none; }
+    #screenImg { display:block; user-select:none; -webkit-user-drag:none; }
+    #overlay { position:absolute; inset:0; pointer-events:auto; cursor:crosshair; }
+    #loadingMask {
+      position: absolute;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(248, 251, 255, 0.72);
+      color: #2c3e57;
+      font-weight: 600;
+      z-index: 3;
+      pointer-events: none;
+    }
+    #loadingMask.show { display: flex; }
+    #props { padding:12px; font-size:13px; }
+    .muted { color: var(--muted); }
+    .props-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+    .props-table th, .props-table td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+    .props-table th { background: #f3f7ff; color: #3d4f6a; font-weight: 600; }
+    .props-key { white-space: nowrap; color: #2c4568; }
+    .props-value { word-break: break-word; }
+    pre { white-space: pre-wrap; word-break: break-word; background:#f6f8fd; border:1px solid var(--line); border-radius:8px; padding:8px; }
+    .toast {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 9999;
+      max-width: 360px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      color: #fff;
+      background: rgba(22, 38, 61, 0.92);
+      box-shadow: 0 10px 20px rgba(0, 0, 0, 0.18);
+      font-size: 13px;
+      opacity: 0;
+      transform: translateY(8px);
+      pointer-events: none;
+      transition: opacity 140ms ease, transform 140ms ease;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast.error { background: rgba(173, 40, 40, 0.94); }
+    .toast.success { background: rgba(28, 94, 57, 0.94); }
+    @media (max-width: 1100px) {
+      .layout {
+        grid-template-columns: 1fr;
+        height: auto;
+      }
+      .splitter { display: none; }
+      #tree, #canvasWrap, #props { min-height: 280px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <label>Grab</label>
+    <select id="grabSelect"></select>
+    <label>Search</label>
+    <input id="search" placeholder="memAddr/id/class/text" />
+    <button id="grabBtn">Grab</button>
+    <button id="copyBtn">Copy memAddr</button>
+    <button id="exportAgentBtn">导出到agent</button>
+    <span id="meta" class="muted"></span>
+  </div>
+  <div class="layout" id="layout">
+    <div class="panel" id="tree"></div>
+    <div class="splitter" id="leftSplitter" title="Drag to resize"></div>
+    <div class="panel" id="canvasWrap">
+      <div id="loadingMask">Loading...</div>
+      <div id="stage">
+        <img id="screenImg" alt="screenshot" />
+        <canvas id="overlay"></canvas>
+      </div>
+    </div>
+    <div class="splitter" id="rightSplitter" title="Drag to resize"></div>
+    <div class="panel" id="props"><div class="muted">Select a view node</div></div>
+  </div>
+  <div id="toast" class="toast" aria-live="polite"></div>
+
+  <script>
+    const state = {
+      grabs: [],
+      snapshot: null,
+      currentGrabId: null,
+      selected: null,
+      scale: 1,
+      collapsed: new Set(),
+      geomList: [],
+      geomByMem: {},
+      hitCycle: null
+    };
+    const treeEl = document.getElementById('tree');
+    const propsEl = document.getElementById('props');
+    const layoutEl = document.getElementById('layout');
+    const leftSplitterEl = document.getElementById('leftSplitter');
+    const rightSplitterEl = document.getElementById('rightSplitter');
+    const grabSelect = document.getElementById('grabSelect');
+    const searchInput = document.getElementById('search');
+    const img = document.getElementById('screenImg');
+    const overlay = document.getElementById('overlay');
+    const canvasWrap = document.getElementById('canvasWrap');
+    const stageEl = document.getElementById('stage');
+    const loadingMask = document.getElementById('loadingMask');
+    const grabBtn = document.getElementById('grabBtn');
+    const exportAgentBtn = document.getElementById('exportAgentBtn');
+    const toastEl = document.getElementById('toast');
+    const ctx = overlay.getContext('2d');
+    const metaEl = document.getElementById('meta');
+    const MIN_SIDE_WIDTH = 220;
+    const MIN_CENTER_WIDTH = 320;
+    let resizing = null;
+    const RAW_FIELD_MAP = {
+      a: 'mChildren',
+      b: 'mTopOffset',
+      c: 'mLeftOffset',
+      d: 'mLeft',
+      e: 'mRight',
+      f: 'mTop',
+      g: 'mBottom',
+      h: 'mScrollX',
+      i: 'mScrollY',
+      j: 'mScaleX',
+      k: 'mScaleY',
+      l: 'mTranslationX',
+      m: 'mTranslationY',
+      n: 'mDrawTop',
+      o: 'mDrawBottom',
+      p: 'mDrawLeft',
+      q: 'mDrawRight',
+      r: 'mPaddingTop',
+      s: 'mPaddingBottom',
+      t: 'mPaddingLeft',
+      u: 'mPaddingRight',
+      v: 'mMarginTop',
+      w: 'mMarginBottom',
+      x: 'mMarginLeft',
+      y: 'mMarginRight',
+      z: 'mLayoutWidth',
+      a0: 'mLayoutHeight',
+      a1: 'mIsClickable',
+      a2: 'mIsLongClickable',
+      a3: 'mIsFocusable',
+      a4: 'mIsPressed',
+      a5: 'mIsSelected',
+      a6: 'mIsFocused',
+      a7: 'mIsEnabled',
+      a8: 'mFlags',
+      a9: 'mCanProviderData',
+      aa: 'mType',
+      ab: 'mVisibility',
+      ac: 'mIdStr',
+      ad: 'mId',
+      ae: 'mAlpha',
+      af: 'mMemAddr',
+      ag: 'mClassName',
+      ah: 'mClickTag',
+      ai: 'mTouchTag',
+      aj: 'mFindViewByIdTag',
+      ak: 'mXmlTag',
+      al: 'mDrawableTag',
+      am: 'mScaleType',
+      an: 'mViewHolderTag',
+      ao: 'mAdapterTag',
+      ap: 'mBackgroundColor',
+      aq: 'mText',
+      ar: 'mSpan',
+      as: 'mTextColor',
+      at: 'mTextSize',
+      au: 'mSpacingAdd',
+      av: 'mLineHeight',
+      aw: 'mTextAlignment',
+      ax: 'mZIndex',
+      ay: 'mXmlJumpInfo',
+      az: 'mImagePath',
+      b0: 'mExtraInfos',
+      b1: 'mShadowDx',
+      b2: 'mShadowDy',
+      b3: 'mShadowRadius',
+      b4: 'mShadowColor',
+      df: 'mPivotX',
+      dg: 'mPivotY',
+      dk: 'mSlopBoundLeft',
+      dl: 'mSlopBoundRight',
+      dm: 'mSlopBoundUp',
+      dn: 'mSlopBoundBottom',
+      do: 'mLayoutRequested'
+    };
+
+    async function boot() {
+      const res = await fetch('/api/grabs');
+      state.grabs = await res.json();
+      renderGrabOptions();
+      const queryGrab = new URLSearchParams(location.search).get('grab_id');
+      const first = queryGrab || (state.grabs[0] && state.grabs[0].grabId);
+      if (first) await loadGrab(first);
+    }
+
+    function renderGrabOptions() {
+      grabSelect.innerHTML = state.grabs.map(g => `<option value="${g.grabId}">${g.grabId}</option>`).join('');
+      grabSelect.onchange = () => loadGrab(grabSelect.value);
+    }
+
+    async function loadGrab(grabId) {
+      setLoading(true);
+      grabSelect.value = grabId;
+      state.currentGrabId = grabId;
+      const snapRes = await fetch(`/api/grab/${grabId}/snapshot`);
+      state.snapshot = await snapRes.json();
+      state.selected = null;
+      state.collapsed = new Set();
+      state.hitCycle = null;
+      buildGeometryIndex();
+      metaEl.textContent = `${state.snapshot.meta.source} | ${state.snapshot.meta.packageName || '-'} | ${state.snapshot.meta.activity || '-'}`;
+      img.onload = () => {
+        fitImageToViewport();
+        redraw();
+        setLoading(false);
+      };
+      img.onerror = () => {
+        // Avoid showing stale image when current grab has no screenshot or load failed.
+        img.removeAttribute('src');
+        stageEl.style.width = '0px';
+        stageEl.style.height = '0px';
+        overlay.width = 0;
+        overlay.height = 0;
+        ctx.clearRect(0, 0, 1, 1);
+        setLoading(false);
+      };
+      img.src = `/api/grab/${grabId}/screenshot?_=${Date.now()}`;
+      renderTree();
+      renderProps();
+    }
+
+    function flatten(nodes, out = []) {
+      nodes.forEach((n) => {
+        out.push(n);
+        flatten(n.children || [], out);
+      });
+      return out;
+    }
+
+    function buildGeometryIndex() {
+      const list = [];
+      const byMem = {};
+      let order = 0;
+
+      function walk(nodes, parentAbsLeft, parentAbsTop, depth) {
+        nodes.forEach((n) => {
+          const left = Number(n.left || 0);
+          const top = Number(n.top || 0);
+          const width = Number(n.width || 0);
+          const height = Number(n.height || 0);
+          const absLeft = parentAbsLeft + left;
+          const absTop = parentAbsTop + top;
+          const geom = {
+            memAddr: n.memAddr,
+            absLeft,
+            absTop,
+            width,
+            height,
+            depth,
+            order: order++,
+            visible: n.visible !== false,
+            alpha: Number(n.alpha == null ? 1 : n.alpha)
+          };
+          list.push(geom);
+          if (n.memAddr) {
+            byMem[n.memAddr] = geom;
+          }
+          walk(n.children || [], absLeft, absTop, depth + 1);
+        });
+      }
+
+      walk(state.snapshot.uiTree || [], 0, 0, 0);
+      state.geomList = list;
+      state.geomByMem = byMem;
+    }
+
+    function fitImageToViewport() {
+      if (!img.naturalWidth || !img.naturalHeight) return;
+      const w = canvasWrap.clientWidth;
+      const h = canvasWrap.clientHeight;
+      if (w <= 0 || h <= 0) return;
+
+      const scale = Math.min(w / img.naturalWidth, h / img.naturalHeight);
+      const renderW = Math.max(1, Math.floor(img.naturalWidth * scale));
+      const renderH = Math.max(1, Math.floor(img.naturalHeight * scale));
+
+      state.scale = scale;
+      stageEl.style.width = `${renderW}px`;
+      stageEl.style.height = `${renderH}px`;
+      img.style.width = `${renderW}px`;
+      img.style.height = `${renderH}px`;
+      overlay.width = renderW;
+      overlay.height = renderH;
+    }
+
+    function renderTree() {
+      const q = searchInput.value.trim().toLowerCase();
+      const forceExpandForSearch = !!q;
+
+      function match(n) {
+        if (!q) return true;
+        return (n.memAddr || '').toLowerCase().includes(q)
+          || (n.idStr || '').toLowerCase().includes(q)
+          || (n.className || '').toLowerCase().includes(q)
+          || (n.text || '').toLowerCase().includes(q);
+      }
+
+      function nodeHtml(n) {
+        const selected = state.selected && state.selected.memAddr === n.memAddr ? 'selected' : '';
+        const idLabel = n.idStr ? `  id=${n.idStr}` : '';
+        const label = `${n.className}  ${n.memAddr}${idLabel}${n.text ? '  ' + n.text : ''}`;
+        const hasChildren = (n.children || []).length > 0;
+        const collapsed = !forceExpandForSearch && state.collapsed.has(n.memAddr);
+        const children = (n.children || []).map(nodeHtml).join('');
+        if (!match(n) && !children) return '';
+        const arrow = hasChildren ? (collapsed ? '&#9654;' : '&#9660;') : '';
+        const arrowCls = hasChildren ? 'twisty' : 'twisty placeholder';
+        return `
+          <li>
+            <div class="tree-row ${selected}" data-action="select" data-mem="${n.memAddr}">
+              <span class="${arrowCls}" data-action="toggle" data-mem="${n.memAddr}">${arrow}</span>
+              <span class="tree-label">${escapeHtml(label)}</span>
+            </div>
+            ${children && !collapsed ? `<ul>${children}</ul>` : ''}
+          </li>
+        `;
+      }
+
+      const html = `<ul>${(state.snapshot.uiTree || []).map(nodeHtml).join('')}</ul>`;
+      treeEl.innerHTML = html;
+    }
+
+    function findPath(nodes, targetMem, path = []) {
+      for (const node of nodes) {
+        path.push(node.memAddr);
+        if (node.memAddr === targetMem) return path.slice();
+        const found = findPath(node.children || [], targetMem, path);
+        if (found) return found;
+        path.pop();
+      }
+      return null;
+    }
+
+    function selectByMem(mem, scrollIntoView) {
+      const all = flatten(state.snapshot.uiTree || []);
+      state.selected = all.find(n => n.memAddr === mem) || null;
+      if (state.selected) {
+        const path = findPath(state.snapshot.uiTree || [], mem) || [];
+        path.slice(0, -1).forEach((m) => state.collapsed.delete(m));
+      }
+      renderTree();
+      renderProps();
+      redraw();
+      if (scrollIntoView && state.selected) {
+        requestAnimationFrame(() => {
+          const row = treeEl.querySelector(`.tree-row[data-mem="${cssAttrEscape(mem)}"]`);
+          if (row) {
+            row.scrollIntoView({ block: 'center', inline: 'nearest' });
+          }
+        });
+      }
+    }
+
+    function renderProps() {
+      if (!state.selected) {
+        propsEl.innerHTML = '<div class="muted">Select a view node</div>';
+        return;
+      }
+      const decodedRows = buildDecodedRawRows(state.selected.raw);
+      const decodedTable = decodedRows.length
+        ? `<table class="props-table">
+            <thead>
+              <tr><th>Raw Key</th><th>Mapped Field</th><th>Value</th></tr>
+            </thead>
+            <tbody>
+              ${decodedRows.map((row) => `<tr>
+                <td class="props-key">${escapeHtml(row.key)}</td>
+                <td class="props-key">${escapeHtml(row.mapped)}</td>
+                <td class="props-value">${escapeHtml(row.value)}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>`
+        : '<div class="muted">No decoded raw params</div>';
+      propsEl.innerHTML = `<h3>${state.selected.className}</h3>
+        <div><b>memAddr:</b> ${state.selected.memAddr}</div>
+        <div><b>id:</b> ${state.selected.idStr || '-'}</div>
+        <div><b>text:</b> ${state.selected.text || '-'}</div>
+        <div><b>frame:</b> (${state.selected.left}, ${state.selected.top}, ${state.selected.width}, ${state.selected.height})</div>
+        <div><b>alpha:</b> ${state.selected.alpha}</div>
+        <div><b>visible:</b> ${state.selected.visible}</div>
+        <h4>Decoded Params (plugin mapping)</h4>
+        ${decodedTable}
+        <h4>Raw</h4>
+        <pre>${escapeHtml(JSON.stringify(state.selected.raw || {}, null, 2))}</pre>`;
+    }
+
+    function formatRawValue(key, value) {
+      if (key === 'a' && Array.isArray(value)) return `[${value.length} children]`;
+      if (key === 'ab') {
+        const raw = String(value);
+        if (raw === 'V' || raw === '0') return 'visible';
+        if (raw === 'I' || raw === '4') return 'invisible';
+        if (raw === 'G' || raw === '8') return 'gone';
+      }
+      if (key === 'aa') {
+        const typeMap = {
+          0: 'TYPE_NORMAL',
+          1: 'TYPE_TEXT',
+          2: 'TYPE_IMAGE',
+          3: 'TYPE_LINEAR',
+          4: 'TYPE_FRAME',
+          5: 'TYPE_RELATIVE'
+        };
+        if (typeof value === 'number' && typeMap[value]) return `${value} (${typeMap[value]})`;
+      }
+      if (value == null) return '';
+      if (typeof value === 'string') return value;
+      if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+      return JSON.stringify(value);
+    }
+
+    function sortRawKeys(keys) {
+      return keys.sort((a, b) => {
+        const pa = RAW_FIELD_MAP[a] ? 0 : 1;
+        const pb = RAW_FIELD_MAP[b] ? 0 : 1;
+        if (pa !== pb) return pa - pb;
+        if (a.length !== b.length) return a.length - b.length;
+        return a.localeCompare(b);
+      });
+    }
+
+    function buildDecodedRawRows(raw) {
+      if (!raw || typeof raw !== 'object') return [];
+      const keys = sortRawKeys(Object.keys(raw));
+      return keys.map((key) => {
+        const mapped = RAW_FIELD_MAP[key] || '(unknown)';
+        const value = formatRawValue(key, raw[key]);
+        return { key, mapped, value };
+      });
+    }
+
+    function redraw() {
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+      if (!state.selected) return;
+      const geom = state.geomByMem[state.selected.memAddr];
+      if (!geom) return;
+      const s = state.scale || 1;
+      const x = Number(geom.absLeft || 0) * s;
+      const y = Number(geom.absTop || 0) * s;
+      const w = Number(geom.width || 0) * s;
+      const h = Number(geom.height || 0) * s;
+      ctx.fillStyle = 'rgba(11,132,243,0.18)';
+      ctx.strokeStyle = '#0b84f3';
+      ctx.lineWidth = 2;
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeRect(x, y, w, h);
+    }
+
+    function hitTestCandidates(clientX, clientY) {
+      const rect = overlay.getBoundingClientRect();
+      const x = (clientX - rect.left) / (state.scale || 1);
+      const y = (clientY - rect.top) / (state.scale || 1);
+      const hits = (state.geomList || [])
+        .filter((g) => {
+          const left = Number(g.absLeft || 0);
+          const top = Number(g.absTop || 0);
+          const width = Number(g.width || 0);
+          const height = Number(g.height || 0);
+          const visible = g.visible && Number(g.alpha || 0) > 0;
+          return visible && width > 0 && height > 0 && x >= left && y >= top && x <= left + width && y <= top + height;
+        });
+      hits.sort((a, b) => {
+        if (b.depth !== a.depth) return b.depth - a.depth;
+        const areaA = Number(a.width || 0) * Number(a.height || 0);
+        const areaB = Number(b.width || 0) * Number(b.height || 0);
+        if (areaA !== areaB) return areaA - areaB;
+        return b.order - a.order;
+      });
+      return {
+        candidates: hits.map((g) => g.memAddr).filter(Boolean),
+        pointKey: `${Math.round(x)}:${Math.round(y)}`
+      };
+    }
+
+    function getLayoutVarPx(name, fallback) {
+      const raw = getComputedStyle(layoutEl).getPropertyValue(name).trim();
+      const value = Number.parseFloat(raw);
+      return Number.isFinite(value) ? value : fallback;
+    }
+
+    function clamp(v, min, max) {
+      return Math.min(Math.max(v, min), max);
+    }
+
+    function setPaneWidths(left, right) {
+      layoutEl.style.setProperty('--left-pane-width', `${Math.round(left)}px`);
+      layoutEl.style.setProperty('--right-pane-width', `${Math.round(right)}px`);
+      fitImageToViewport();
+      redraw();
+    }
+
+    function beginResize(side, clientX) {
+      if (window.matchMedia('(max-width: 1100px)').matches) return;
+      const rect = layoutEl.getBoundingClientRect();
+      resizing = {
+        side,
+        startX: clientX,
+        startLeft: getLayoutVarPx('--left-pane-width', 340),
+        startRight: getLayoutVarPx('--right-pane-width', 340),
+        layoutWidth: rect.width,
+        splitterWidth: getLayoutVarPx('--splitter-width', 10)
+      };
+      document.body.classList.add('is-resizing');
+    }
+
+    function onResizeMove(clientX) {
+      if (!resizing) return;
+      const delta = clientX - resizing.startX;
+      const reserved = resizing.splitterWidth * 2;
+      if (resizing.side === 'left') {
+        const maxLeft = resizing.layoutWidth - reserved - resizing.startRight - MIN_CENTER_WIDTH;
+        const nextLeft = clamp(resizing.startLeft + delta, MIN_SIDE_WIDTH, Math.max(MIN_SIDE_WIDTH, maxLeft));
+        setPaneWidths(nextLeft, resizing.startRight);
+      } else {
+        const maxRight = resizing.layoutWidth - reserved - resizing.startLeft - MIN_CENTER_WIDTH;
+        const nextRight = clamp(resizing.startRight - delta, MIN_SIDE_WIDTH, Math.max(MIN_SIDE_WIDTH, maxRight));
+        setPaneWidths(resizing.startLeft, nextRight);
+      }
+    }
+
+    function endResize() {
+      if (!resizing) return;
+      resizing = null;
+      document.body.classList.remove('is-resizing');
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+    }
+
+    function cssAttrEscape(str) {
+      return (str || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    }
+
+    treeEl.onclick = (e) => {
+      const toggle = e.target.closest('[data-action="toggle"]');
+      if (toggle && !toggle.classList.contains('placeholder')) {
+        const mem = toggle.getAttribute('data-mem');
+        if (state.collapsed.has(mem)) state.collapsed.delete(mem);
+        else state.collapsed.add(mem);
+        renderTree();
+        return;
+      }
+      const row = e.target.closest('[data-action="select"]');
+      if (row) {
+        const mem = row.getAttribute('data-mem');
+        selectByMem(mem, false);
+      }
+    };
+
+    overlay.onclick = (e) => {
+      if (!state.snapshot) return;
+      const hit = hitTestCandidates(e.clientX, e.clientY);
+      const candidates = hit.candidates || [];
+      if (!candidates.length) return;
+
+      let idx = 0;
+      if (
+        state.hitCycle &&
+        state.hitCycle.pointKey === hit.pointKey &&
+        arraysEqual(state.hitCycle.candidates, candidates)
+      ) {
+        idx = (state.hitCycle.index + 1) % candidates.length;
+      }
+      state.hitCycle = { pointKey: hit.pointKey, candidates, index: idx };
+      selectByMem(candidates[idx], true);
+    };
+
+    window.addEventListener('resize', () => {
+      fitImageToViewport();
+      redraw();
+    });
+
+    searchInput.oninput = () => renderTree();
+    grabBtn.onclick = async () => {
+      const original = grabBtn.textContent;
+      grabBtn.disabled = true;
+      grabBtn.textContent = 'Grabbing...';
+      try {
+        const res = await fetch('/api/grab-live', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}'
+        });
+        const result = await res.json();
+        if (!result.success) {
+          const liveMsg = (result.error && result.error.message) || 'grab live failed';
+          const fallbackRes = await fetch('/api/grab-file-latest', { method: 'POST' });
+          const fallback = await fallbackRes.json();
+          if (!fallback.success) {
+            const fallbackMsg = (fallback.error && fallback.error.message) || 'grab file fallback failed';
+            alert(`Grab live failed: ${liveMsg}\nFallback failed: ${fallbackMsg}`);
+            return;
+          }
+          const fallbackGrabId = fallback.grabId || (fallback.data && fallback.data.grabId);
+          const listRes = await fetch('/api/grabs');
+          state.grabs = await listRes.json();
+          renderGrabOptions();
+          if (fallbackGrabId) {
+            await loadGrab(fallbackGrabId);
+            const u = new URL(location.href);
+            u.searchParams.set('grab_id', fallbackGrabId);
+            history.replaceState(null, '', u.toString());
+          }
+          alert(`Grab live failed: ${liveMsg}\nLoaded latest history file instead.`);
+          return;
+        }
+        const newGrabId = result.grabId || (result.data && result.data.grabId);
+        const listRes = await fetch('/api/grabs');
+        state.grabs = await listRes.json();
+        renderGrabOptions();
+        if (newGrabId) {
+          await loadGrab(newGrabId);
+          const u = new URL(location.href);
+          u.searchParams.set('grab_id', newGrabId);
+          history.replaceState(null, '', u.toString());
+        }
+      } catch (e) {
+        alert(`Grab failed: ${e && e.message ? e.message : e}`);
+      } finally {
+        grabBtn.disabled = false;
+        grabBtn.textContent = original;
+      }
+    };
+    document.getElementById('copyBtn').onclick = async () => {
+      if (!state.selected) return;
+      await navigator.clipboard.writeText(state.selected.memAddr);
+    };
+
+    exportAgentBtn.onclick = async () => {
+      if (!state.currentGrabId) {
+        showToast('No grab selected', 'error');
+        return;
+      }
+      const original = exportAgentBtn.textContent;
+      exportAgentBtn.disabled = true;
+      exportAgentBtn.textContent = '导出中...';
+      try {
+        const res = await fetch(`/api/grab/${encodeURIComponent(state.currentGrabId)}/paths`);
+        if (!res.ok) {
+          throw new Error(`export paths failed: HTTP ${res.status}`);
+        }
+        const paths = await res.json();
+        const text = buildAgentExportText(paths);
+        await navigator.clipboard.writeText(text);
+        showToast('已复制导出内容，可直接粘贴给 Agent/LLM。', 'success');
+      } catch (e) {
+        showToast(`导出失败: ${e && e.message ? e.message : e}`, 'error');
+      } finally {
+        exportAgentBtn.disabled = false;
+        exportAgentBtn.textContent = original;
+      }
+    };
+
+    function buildAgentExportText(paths) {
+      const lines = [
+        '[CodeLocator Grab Context]',
+        `grab_id: ${paths && paths.grabId ? paths.grabId : (state.currentGrabId || '')}`,
+        `screenshot_path: ${paths && paths.screenshotPath ? paths.screenshotPath : ''}`,
+        `snapshot_path: ${paths && paths.snapshotPath ? paths.snapshotPath : ''}`,
+        `index_path: ${paths && paths.indexPath ? paths.indexPath : ''}`,
+        `grab_dir: ${paths && paths.grabDir ? paths.grabDir : ''}`
+      ];
+      return lines.join('\n');
+    }
+
+    function arraysEqual(a, b) {
+      if (!a || !b || a.length !== b.length) return false;
+      for (let i = 0; i < a.length; i += 1) {
+        if (a[i] !== b[i]) return false;
+      }
+      return true;
+    }
+
+    function setLoading(loading) {
+      if (loading) loadingMask.classList.add('show');
+      else loadingMask.classList.remove('show');
+    }
+
+    let toastTimer = null;
+    function showToast(message, type = '') {
+      toastEl.textContent = message || '';
+      toastEl.className = `toast ${type}`.trim();
+      requestAnimationFrame(() => {
+        toastEl.classList.add('show');
+      });
+      if (toastTimer) {
+        clearTimeout(toastTimer);
+      }
+      toastTimer = setTimeout(() => {
+        toastEl.classList.remove('show');
+      }, 1800);
+    }
+
+    leftSplitterEl.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      beginResize('left', e.clientX);
+    });
+
+    rightSplitterEl.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      beginResize('right', e.clientX);
+    });
+
+    window.addEventListener('mousemove', (e) => onResizeMove(e.clientX));
+    window.addEventListener('mouseup', () => endResize());
+    window.addEventListener('blur', () => endResize());
+
+    boot();
+  </script>
+</body>
+</html>
