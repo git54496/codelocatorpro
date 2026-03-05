@@ -1,6 +1,6 @@
 # CodeLocatorPRO Workspace
 
-CodeLocatorPRO 是一个由 `android-core + adapter` 组成的工作区，用于 Android UI 抓取、定位与可视化分析。
+CodeLocatorPRO 当前仓库以 `adapter` 为核心，用于 Android UI 抓取、定位与可视化分析；Android SDK 已拆分到独立仓库 `codelocator-pro-android`。
 
 ## Open Source Notice / 开源声明
 
@@ -57,12 +57,12 @@ grab
 
 ## 目录结构
 
-- `android-core`
-  - Android 侧抓取、分析、协议模型与动作执行核心逻辑。
 - `adapter`
   - CLI + MCP(stdio) + 本地 Viewer HTTP 服务（内置前端页面资源）。
 - `build.sh`
   - 一键构建 adapter 并启动本地 Viewer。
+- `../codelocator-pro-android`（独立仓库）
+  - Android 侧抓取、分析、协议模型与动作执行核心逻辑。
 
 ## 手动构建 Adapter
 
