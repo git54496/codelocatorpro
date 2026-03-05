@@ -14,3 +14,6 @@ doc/
 # Gradle
 .gradle/
 build/
+
+# Local front-end playground
+fe/
