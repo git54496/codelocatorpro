@@ -15,7 +15,7 @@ class AdbGateway(private val store: GrabStore) {
         val notice: String?
     )
 
-    fun grabUiState(deviceSerialArg: String?): ToolResult<GrabMeta> {
+    fun grabUiState(deviceSerialArg: String?, sourceRoot: String? = null): ToolResult<GrabMeta> {
         val choice = chooseDevice(deviceSerialArg)
         val args = linkedMapOf(
             Constants.KEY_SAVE_TO_FILE to "true",
@@ -26,7 +26,7 @@ class AdbGateway(private val store: GrabStore) {
             ?: throw AdapterException("DECODE_ERROR", "Missing application data in broadcast response")
         val screenshot = tryGrabScreenshot(choice.serial)
 
-        val saved = store.importLive(appJson, screenshot, choice.serial, choice.notice)
+        val saved = store.importLive(appJson, screenshot, choice.serial, choice.notice, sourceRoot)
         store.updateState {
             it.addProperty("last_success_device", choice.serial)
             it.addProperty("last_grab_id", saved.grabId)

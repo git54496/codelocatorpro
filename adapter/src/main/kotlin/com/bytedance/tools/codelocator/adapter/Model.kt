@@ -21,6 +21,7 @@ data class ViewNodeDto(
     val height: Int = 0,
     val visible: Boolean = true,
     val alpha: Double = 1.0,
+    val composeCapture: ComposeCaptureDto? = null,
     val composeNodes: List<ComposeNodeDto> = emptyList(),
     val children: List<ViewNodeDto> = emptyList(),
     val raw: Map<String, Any?> = emptyMap()
@@ -31,7 +32,11 @@ data class GrabSnapshot(
     val uiTree: List<ViewNodeDto>,
     val screenshotRef: String? = null,
     val indexes: Map<String, ViewIndexItem> = emptyMap(),
-    val composeIndexes: Map<String, ComposeIndexItem> = emptyMap()
+    val composeIndexes: Map<String, ComposeIndexItem> = emptyMap(),
+    val componentIndexes: Map<String, ComposeComponentIndexItem> = emptyMap(),
+    val renderIndexes: Map<String, ComposeRenderIndexItem> = emptyMap(),
+    val semanticsIndexes: Map<String, ComposeSemanticsIndexItem> = emptyMap(),
+    val linkIndexes: Map<String, ComposeLinkIndexItem> = emptyMap()
 )
 
 data class ViewIndexItem(
@@ -67,6 +72,84 @@ data class ComposeNodeDto(
     val raw: Map<String, Any?> = emptyMap()
 )
 
+data class ComposeCaptureDto(
+    val composeCaptureVersion: String? = null,
+    val componentTree: List<ComposeComponentNodeDto> = emptyList(),
+    val renderTree: List<ComposeRenderNodeDto> = emptyList(),
+    val semanticsTree: List<ComposeSemanticsNodeDto> = emptyList(),
+    val links: List<ComposeLinkDto> = emptyList(),
+    val errors: List<String> = emptyList()
+)
+
+data class ComposeComponentNodeDto(
+    val componentId: String,
+    val displayName: String? = null,
+    val sourcePathToken: String? = null,
+    val sourcePath: String? = null,
+    val sourceLine: Int = 0,
+    val sourceColumn: Int = 0,
+    val confidence: Double = 0.0,
+    val frameworkNode: Boolean = false,
+    val pathResolution: String? = null,
+    val children: List<ComposeComponentNodeDto> = emptyList(),
+    val raw: Map<String, Any?> = emptyMap()
+)
+
+data class ComposeRenderNodeDto(
+    val renderId: String,
+    val parentRenderId: String? = null,
+    val left: Int = 0,
+    val top: Int = 0,
+    val right: Int = 0,
+    val bottom: Int = 0,
+    val visible: Boolean = true,
+    val alpha: Double = 1.0,
+    val zIndex: Double = 0.0,
+    val modifierSummary: String? = null,
+    val styleSummary: String? = null,
+    val componentId: String? = null,
+    val typeName: String? = null,
+    val children: List<ComposeRenderNodeDto> = emptyList(),
+    val raw: Map<String, Any?> = emptyMap()
+)
+
+data class ComposeSemanticsNodeDto(
+    val semanticsId: String,
+    val renderId: String? = null,
+    val componentId: String? = null,
+    val legacyNodeId: String? = null,
+    val left: Int = 0,
+    val top: Int = 0,
+    val right: Int = 0,
+    val bottom: Int = 0,
+    val text: String? = null,
+    val contentDescription: String? = null,
+    val testTag: String? = null,
+    val clickable: Boolean = false,
+    val enabled: Boolean = true,
+    val focused: Boolean = false,
+    val visibleToUser: Boolean = true,
+    val selected: Boolean = false,
+    val checkable: Boolean = false,
+    val checked: Boolean = false,
+    val focusable: Boolean = false,
+    val role: String? = null,
+    val className: String? = null,
+    val actions: List<String> = emptyList(),
+    val children: List<ComposeSemanticsNodeDto> = emptyList(),
+    val raw: Map<String, Any?> = emptyMap()
+)
+
+data class ComposeLinkDto(
+    val sourceNodeType: String,
+    val targetNodeType: String,
+    val sourceId: String,
+    val targetId: String,
+    val confidence: Double = 0.0,
+    val linkStrategy: String? = null,
+    val raw: Map<String, Any?> = emptyMap()
+)
+
 data class ComposeIndexItem(
     val composeKey: String,
     val hostMemAddr: String,
@@ -87,6 +170,77 @@ data class ComposeIndexItem(
     val checked: Boolean = false,
     val focusable: Boolean = false,
     val actions: List<String> = emptyList()
+)
+
+data class ComposeComponentIndexItem(
+    val componentKey: String,
+    val hostMemAddr: String,
+    val componentId: String,
+    val parentComponentId: String? = null,
+    val displayName: String? = null,
+    val sourcePathToken: String? = null,
+    val sourcePath: String? = null,
+    val sourceLine: Int = 0,
+    val sourceColumn: Int = 0,
+    val confidence: Double = 0.0,
+    val frameworkNode: Boolean = false,
+    val pathResolution: String? = null
+)
+
+data class ComposeRenderIndexItem(
+    val renderKey: String,
+    val hostMemAddr: String,
+    val renderId: String,
+    val parentRenderId: String? = null,
+    val componentId: String? = null,
+    val left: Int = 0,
+    val top: Int = 0,
+    val right: Int = 0,
+    val bottom: Int = 0,
+    val visible: Boolean = true,
+    val alpha: Double = 1.0,
+    val zIndex: Double = 0.0,
+    val modifierSummary: String? = null,
+    val styleSummary: String? = null,
+    val typeName: String? = null
+)
+
+data class ComposeSemanticsIndexItem(
+    val semanticsKey: String,
+    val hostMemAddr: String,
+    val semanticsId: String,
+    val renderId: String? = null,
+    val componentId: String? = null,
+    val legacyNodeId: String? = null,
+    val left: Int = 0,
+    val top: Int = 0,
+    val right: Int = 0,
+    val bottom: Int = 0,
+    val text: String? = null,
+    val contentDescription: String? = null,
+    val testTag: String? = null,
+    val clickable: Boolean = false,
+    val enabled: Boolean = true,
+    val focused: Boolean = false,
+    val visibleToUser: Boolean = true,
+    val selected: Boolean = false,
+    val checkable: Boolean = false,
+    val checked: Boolean = false,
+    val focusable: Boolean = false,
+    val role: String? = null,
+    val className: String? = null,
+    val actions: List<String> = emptyList()
+)
+
+data class ComposeLinkIndexItem(
+    val linkKey: String,
+    val hostMemAddr: String,
+    val sourceNodeType: String,
+    val targetNodeType: String,
+    val sourceId: String,
+    val targetId: String,
+    val confidence: Double = 0.0,
+    val linkStrategy: String? = null
 )
 
 data class McpError(

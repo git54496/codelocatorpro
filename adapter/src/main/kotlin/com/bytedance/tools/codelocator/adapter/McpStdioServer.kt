@@ -66,8 +66,8 @@ class McpStdioServer(private val service: AdapterService) {
 
         return try {
             val result = when (name) {
-                Constants.TOOL_GRAB_UI_STATE -> service.grabLive(args?.optString("deviceSerial"))
-                Constants.TOOL_LOAD_LOCAL_GRAB -> service.grabFromFile(args?.optString("path"))
+                Constants.TOOL_GRAB_UI_STATE -> service.grabLive(args?.optString("deviceSerial"), args?.optString("source_root"))
+                Constants.TOOL_LOAD_LOCAL_GRAB -> service.grabFromFile(args?.optString("path"), args?.optString("source_root"))
                 Constants.TOOL_LIST_GRABS -> service.listGrabs()
                 Constants.TOOL_OPEN_WEB_VIEWER -> service.openViewer(args?.optString("grab_id"))
                 Constants.TOOL_GET_VIEW_DATA -> {
@@ -89,6 +89,21 @@ class McpStdioServer(private val service: AdapterService) {
                     val nodeId = args.requireString("node_id")
                     service.getComposeNode(grabId, nodeId)
                 }
+                Constants.TOOL_GET_COMPOSE_COMPONENT -> {
+                    val grabId = args.requireString("grab_id")
+                    val componentId = args.requireString("component_id")
+                    service.getComposeComponent(grabId, componentId)
+                }
+                Constants.TOOL_GET_COMPOSE_RENDER -> {
+                    val grabId = args.requireString("grab_id")
+                    val renderId = args.requireString("render_id")
+                    service.getComposeRender(grabId, renderId)
+                }
+                Constants.TOOL_GET_COMPOSE_LINK -> {
+                    val grabId = args.requireString("grab_id")
+                    val nodeKey = args.requireString("node_key")
+                    service.getComposeLink(grabId, nodeKey)
+                }
                 else -> ToolResult<Any>(
                     success = false,
                     error = McpError("INVALID_ARGUMENT", "unknown tool: $name")
@@ -106,11 +121,17 @@ class McpStdioServer(private val service: AdapterService) {
         return listOf(
             tool(Constants.TOOL_GRAB_UI_STATE, "Grab UI state from live device", mapOf(
                 "type" to "object",
-                "properties" to mapOf("deviceSerial" to mapOf("type" to "string"))
+                "properties" to mapOf(
+                    "deviceSerial" to mapOf("type" to "string"),
+                    "source_root" to mapOf("type" to "string")
+                )
             )),
             tool(Constants.TOOL_LOAD_LOCAL_GRAB, "Load local .codeLocator file", mapOf(
                 "type" to "object",
-                "properties" to mapOf("path" to mapOf("type" to "string"))
+                "properties" to mapOf(
+                    "path" to mapOf("type" to "string"),
+                    "source_root" to mapOf("type" to "string")
+                )
             )),
             tool(Constants.TOOL_LIST_GRABS, "List grabbed snapshots", mapOf(
                 "type" to "object",
@@ -148,6 +169,30 @@ class McpStdioServer(private val service: AdapterService) {
                     "node_id" to mapOf("type" to "string")
                 ),
                 "required" to listOf("grab_id", "node_id")
+            )),
+            tool(Constants.TOOL_GET_COMPOSE_COMPONENT, "Get compose component by component_id or component_key", mapOf(
+                "type" to "object",
+                "properties" to mapOf(
+                    "grab_id" to mapOf("type" to "string"),
+                    "component_id" to mapOf("type" to "string")
+                ),
+                "required" to listOf("grab_id", "component_id")
+            )),
+            tool(Constants.TOOL_GET_COMPOSE_RENDER, "Get compose render node by render_id or render_key", mapOf(
+                "type" to "object",
+                "properties" to mapOf(
+                    "grab_id" to mapOf("type" to "string"),
+                    "render_id" to mapOf("type" to "string")
+                ),
+                "required" to listOf("grab_id", "render_id")
+            )),
+            tool(Constants.TOOL_GET_COMPOSE_LINK, "Get compose link by link_key", mapOf(
+                "type" to "object",
+                "properties" to mapOf(
+                    "grab_id" to mapOf("type" to "string"),
+                    "node_key" to mapOf("type" to "string")
+                ),
+                "required" to listOf("grab_id", "node_key")
             ))
         )
     }

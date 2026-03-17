@@ -83,6 +83,24 @@ cd adapter
 adapter/build/install/grab/bin/grab
 ```
 
+## 本地联调 `codelocator-pro-android`
+
+如果你在同级目录维护 `../TestApplication` 和 `../codelocator-pro-android`，推荐用下面这条链路做本地验证：
+
+```bash
+cd ../TestApplication
+bash scripts/publish-local-codelocator.sh
+./gradlew :app:installDebug -PuseLocalCodeLocatorMaven=true
+
+cd ../codelocatorpro
+bash dev-grab.sh -v
+```
+
+说明：
+
+- `publish-local-codelocator.sh` 会把本地 Android SDK 源码发布到 `mavenLocal()`。
+- `dev-grab.sh` 会构建当前仓库里的 adapter，并默认把 `CODELOCATOR_SOURCE_ROOT` 指向 `../TestApplication`，这样 Compose source path 会直接归一化到测试工程源码。
+
 ## CLI 常用命令
 
 ```bash
@@ -138,8 +156,8 @@ $BIN inspect compose-node --grab-id <grab_id> --node-id <compose_node_id_or_comp
 
 当前仓库已引入统一版本文件 `VERSION`，`grab --version` 与 adapter 构建版本会保持一致。正式发布 Homebrew 升级链路时，按以下流程操作：
 
-1. 更新 `VERSION`，推送 `codelocatorpro`，并创建对应 tag，例如 `v0.2.1`。
-2. 进入 tap 仓库 `homebrew-codelocatorpro`，执行 `./scripts/update_grab_formula.sh 0.2.1`。
+1. 更新 `VERSION`，推送 `codelocatorpro`，并创建对应 tag，例如 `v0.2.2`。
+2. 进入 tap 仓库 `homebrew-codelocatorpro`，执行 `./scripts/update_grab_formula.sh 0.2.2`。
 3. 提交并推送 tap 仓库中的 `Formula/grab.rb`。
 4. 用户执行 `brew update && brew upgrade grab`。
 

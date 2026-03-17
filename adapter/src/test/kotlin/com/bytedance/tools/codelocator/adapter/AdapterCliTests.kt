@@ -44,11 +44,25 @@ class AdapterCliTests {
     }
 
     @Test
+    fun `parse live command supports source root`() {
+        val parsed = AdapterCli.parseGrabCommand(listOf("live", "--source-root", "/workspace/demo"))
+        assertEquals("live", parsed?.mode)
+        assertEquals("/workspace/demo", parsed?.sourceRoot)
+    }
+
+    @Test
     fun `parse file command supports path and viewer`() {
         val parsed = AdapterCli.parseGrabCommand(listOf("file", "--path", "/tmp/sample.codeLocator", "-v"))
         assertEquals("file", parsed?.mode)
         assertEquals("/tmp/sample.codeLocator", parsed?.path)
         assertTrue(parsed?.autoOpenViewer == true)
+    }
+
+    @Test
+    fun `parse file command supports source root`() {
+        val parsed = AdapterCli.parseGrabCommand(listOf("file", "--path", "/tmp/sample.codeLocator", "--source-root", "/workspace/demo"))
+        assertEquals("file", parsed?.mode)
+        assertEquals("/workspace/demo", parsed?.sourceRoot)
     }
 
     @Test

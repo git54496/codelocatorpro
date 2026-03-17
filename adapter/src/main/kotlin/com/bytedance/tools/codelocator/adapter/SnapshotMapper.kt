@@ -3,29 +3,39 @@ package com.bytedance.tools.codelocator.adapter
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
+import java.nio.file.Path
 import kotlin.math.max
 
 object SnapshotMapper {
 
-    fun map(meta: GrabMeta, appJsonRaw: String, screenshotRef: String?): GrabSnapshot {
+    fun map(meta: GrabMeta, appJsonRaw: String, screenshotRef: String?, sourceRoot: String? = null): GrabSnapshot {
         val app = Jsons.parseObject(appJsonRaw)
         val activity = getObj(app, "b7", "mActivity")
         val roots = getArray(activity, "cj", "mDecorViews")
             ?: getArray(app, "cj", "mDecorViews")
             ?: JsonArray()
 
-        val tree = roots.mapNotNull { parseView(it.asJsonObject) }
+        val tree = roots.mapNotNull { parseView(it.asJsonObject, sourceRoot) }
         val index = linkedMapOf<String, ViewIndexItem>()
         val composeIndex = linkedMapOf<String, ComposeIndexItem>()
+        val componentIndex = linkedMapOf<String, ComposeComponentIndexItem>()
+        val renderIndex = linkedMapOf<String, ComposeRenderIndexItem>()
+        val semanticsIndex = linkedMapOf<String, ComposeSemanticsIndexItem>()
+        val linkIndex = linkedMapOf<String, ComposeLinkIndexItem>()
         tree.forEach { fillIndex(it, index) }
         tree.forEach { fillComposeIndex(it, composeIndex) }
+        tree.forEach { fillComposeCaptureIndexes(it, componentIndex, renderIndex, semanticsIndex, linkIndex) }
 
         return GrabSnapshot(
             meta = meta,
             uiTree = tree,
             screenshotRef = screenshotRef,
             indexes = index,
-            composeIndexes = composeIndex
+            composeIndexes = composeIndex,
+            componentIndexes = componentIndex,
+            renderIndexes = renderIndex,
+            semanticsIndexes = semanticsIndex,
+            linkIndexes = linkIndex
         )
     }
 
@@ -39,6 +49,16 @@ object SnapshotMapper {
             val activity = getObj(app, "b7", "mActivity")
             getString(activity, "ag", "mClassName")
         }.getOrNull()
+    }
+
+    internal fun componentKey(hostMemAddr: String, componentId: String): String = "$hostMemAddr:component:$componentId"
+
+    internal fun renderKey(hostMemAddr: String, renderId: String): String = "$hostMemAddr:render:$renderId"
+
+    internal fun semanticsKey(hostMemAddr: String, semanticsId: String): String = "$hostMemAddr:semantics:$semanticsId"
+
+    internal fun linkKey(hostMemAddr: String, sourceNodeType: String, sourceId: String, targetNodeType: String, targetId: String): String {
+        return "$hostMemAddr:link:$sourceNodeType:$sourceId->$targetNodeType:$targetId"
     }
 
     private fun fillIndex(node: ViewNodeDto, out: MutableMap<String, ViewIndexItem>) {
@@ -88,7 +108,129 @@ object SnapshotMapper {
         node.children.forEach { child -> fillComposeNodeIndex(hostMemAddr, child, out) }
     }
 
-    private fun parseView(viewObj: JsonObject): ViewNodeDto? {
+    private fun fillComposeCaptureIndexes(
+        node: ViewNodeDto,
+        componentOut: MutableMap<String, ComposeComponentIndexItem>,
+        renderOut: MutableMap<String, ComposeRenderIndexItem>,
+        semanticsOut: MutableMap<String, ComposeSemanticsIndexItem>,
+        linkOut: MutableMap<String, ComposeLinkIndexItem>
+    ) {
+        val capture = node.composeCapture
+        if (capture != null) {
+            capture.componentTree.forEach { component ->
+                fillComponentIndex(node.memAddr, component, null, componentOut)
+            }
+            capture.renderTree.forEach { render ->
+                fillRenderIndex(node.memAddr, render, renderOut)
+            }
+            capture.semanticsTree.forEach { semantics ->
+                fillSemanticsIndex(node.memAddr, semantics, semanticsOut)
+            }
+            capture.links.forEach { link ->
+                val key = linkKey(node.memAddr, link.sourceNodeType, link.sourceId, link.targetNodeType, link.targetId)
+                linkOut[key] = ComposeLinkIndexItem(
+                    linkKey = key,
+                    hostMemAddr = node.memAddr,
+                    sourceNodeType = link.sourceNodeType,
+                    targetNodeType = link.targetNodeType,
+                    sourceId = link.sourceId,
+                    targetId = link.targetId,
+                    confidence = link.confidence,
+                    linkStrategy = link.linkStrategy
+                )
+            }
+        }
+        node.children.forEach { fillComposeCaptureIndexes(it, componentOut, renderOut, semanticsOut, linkOut) }
+    }
+
+    private fun fillComponentIndex(
+        hostMemAddr: String,
+        node: ComposeComponentNodeDto,
+        parentComponentId: String?,
+        out: MutableMap<String, ComposeComponentIndexItem>
+    ) {
+        val key = componentKey(hostMemAddr, node.componentId)
+        out[key] = ComposeComponentIndexItem(
+            componentKey = key,
+            hostMemAddr = hostMemAddr,
+            componentId = node.componentId,
+            parentComponentId = parentComponentId,
+            displayName = node.displayName,
+            sourcePathToken = node.sourcePathToken,
+            sourcePath = node.sourcePath,
+            sourceLine = node.sourceLine,
+            sourceColumn = node.sourceColumn,
+            confidence = node.confidence,
+            frameworkNode = node.frameworkNode,
+            pathResolution = node.pathResolution
+        )
+        node.children.forEach { child ->
+            fillComponentIndex(hostMemAddr, child, node.componentId, out)
+        }
+    }
+
+    private fun fillRenderIndex(
+        hostMemAddr: String,
+        node: ComposeRenderNodeDto,
+        out: MutableMap<String, ComposeRenderIndexItem>
+    ) {
+        val key = renderKey(hostMemAddr, node.renderId)
+        out[key] = ComposeRenderIndexItem(
+            renderKey = key,
+            hostMemAddr = hostMemAddr,
+            renderId = node.renderId,
+            parentRenderId = node.parentRenderId,
+            componentId = node.componentId,
+            left = node.left,
+            top = node.top,
+            right = node.right,
+            bottom = node.bottom,
+            visible = node.visible,
+            alpha = node.alpha,
+            zIndex = node.zIndex,
+            modifierSummary = node.modifierSummary,
+            styleSummary = node.styleSummary,
+            typeName = node.typeName
+        )
+        node.children.forEach { child -> fillRenderIndex(hostMemAddr, child, out) }
+    }
+
+    private fun fillSemanticsIndex(
+        hostMemAddr: String,
+        node: ComposeSemanticsNodeDto,
+        out: MutableMap<String, ComposeSemanticsIndexItem>
+    ) {
+        val key = semanticsKey(hostMemAddr, node.semanticsId)
+        out[key] = ComposeSemanticsIndexItem(
+            semanticsKey = key,
+            hostMemAddr = hostMemAddr,
+            semanticsId = node.semanticsId,
+            renderId = node.renderId,
+            componentId = node.componentId,
+            legacyNodeId = node.legacyNodeId,
+            left = node.left,
+            top = node.top,
+            right = node.right,
+            bottom = node.bottom,
+            text = node.text,
+            contentDescription = node.contentDescription,
+            testTag = node.testTag,
+            clickable = node.clickable,
+            enabled = node.enabled,
+            focused = node.focused,
+            visibleToUser = node.visibleToUser,
+            selected = node.selected,
+            checkable = node.checkable,
+            checked = node.checked,
+            focusable = node.focusable,
+            role = node.role,
+            className = node.className,
+            actions = node.actions
+        )
+        node.children.forEach { child -> fillSemanticsIndex(hostMemAddr, child, out) }
+    }
+
+    private fun parseView(viewObj: JsonObject, sourceRoot: String?): ViewNodeDto? {
         val memAddr = getString(viewObj, "af", "mMemAddr") ?: return null
         val className = getString(viewObj, "ag", "mClassName") ?: "UnknownView"
         val idStr = getString(viewObj, "ac", "mIdStr")
@@ -105,6 +247,9 @@ object SnapshotMapper {
         val visible = visibility?.let { it != "8" } ?: true
         val alpha = getDouble(viewObj, "ae", "mAlpha") ?: 1.0
 
+        val composeCaptureObj = getObj(viewObj, "b6", "mComposeCapture")
+        val composeCapture = composeCaptureObj?.let { parseComposeCapture(it, sourceRoot) }
+
         val composeArray = getArray(viewObj, "b5", "mComposeNodes") ?: JsonArray()
         val composeNodes = composeArray.mapNotNull { compose ->
             if (compose.isJsonObject) parseComposeNode(compose.asJsonObject) else null
@@ -112,7 +257,7 @@ object SnapshotMapper {
 
         val childrenArray = getArray(viewObj, "a", "mChildren") ?: JsonArray()
         val children = childrenArray.mapNotNull { child ->
-            if (child.isJsonObject) parseView(child.asJsonObject) else null
+            if (child.isJsonObject) parseView(child.asJsonObject, sourceRoot) else null
         }
 
         return ViewNodeDto(
@@ -126,9 +271,134 @@ object SnapshotMapper {
             height = height,
             visible = visible,
             alpha = alpha,
+            composeCapture = composeCapture,
             composeNodes = composeNodes,
             children = children,
             raw = Jsons.elementToAny(viewObj) as? Map<String, Any?> ?: emptyMap()
+        )
+    }
+
+    private fun parseComposeCapture(obj: JsonObject, sourceRoot: String?): ComposeCaptureDto {
+        val componentTree = (getArray(obj, "b", "componentTree") ?: JsonArray()).mapNotNull {
+            if (it.isJsonObject) parseComponentNode(it.asJsonObject, sourceRoot) else null
+        }
+        val renderTree = (getArray(obj, "c", "renderTree") ?: JsonArray()).mapNotNull {
+            if (it.isJsonObject) parseRenderNode(it.asJsonObject) else null
+        }
+        val semanticsTree = (getArray(obj, "d", "semanticsTree") ?: JsonArray()).mapNotNull {
+            if (it.isJsonObject) parseSemanticsNode(it.asJsonObject) else null
+        }
+        val links = (getArray(obj, "e", "links") ?: JsonArray()).mapNotNull {
+            if (it.isJsonObject) parseLink(it.asJsonObject) else null
+        }
+        val errors = (getArray(obj, "f", "errors") ?: JsonArray()).mapNotNull {
+            if (it.isJsonPrimitive) runCatching { it.asString }.getOrNull() else null
+        }
+        return ComposeCaptureDto(
+            composeCaptureVersion = getString(obj, "a", "composeCaptureVersion"),
+            componentTree = componentTree,
+            renderTree = renderTree,
+            semanticsTree = semanticsTree,
+            links = links,
+            errors = errors
+        )
+    }
+
+    private fun parseComponentNode(nodeObj: JsonObject, sourceRoot: String?): ComposeComponentNodeDto? {
+        val componentId = getString(nodeObj, "a", "componentId") ?: return null
+        val token = getString(nodeObj, "c", "sourcePathToken")
+        val rawPath = getString(nodeObj, "d", "sourcePath")
+        val normalizedPath = normalizeSourcePath(sourceRoot, token, rawPath)
+        return ComposeComponentNodeDto(
+            componentId = componentId,
+            displayName = getString(nodeObj, "b", "displayName"),
+            sourcePathToken = token,
+            sourcePath = normalizedPath.path,
+            sourceLine = getInt(nodeObj, "e", "sourceLine") ?: 0,
+            sourceColumn = getInt(nodeObj, "f", "sourceColumn") ?: 0,
+            confidence = getDouble(nodeObj, "g", "confidence") ?: 0.0,
+            frameworkNode = getBoolean(nodeObj, "h", "frameworkNode") ?: false,
+            pathResolution = normalizedPath.resolution,
+            children = (getArray(nodeObj, "i", "children") ?: JsonArray()).mapNotNull {
+                if (it.isJsonObject) parseComponentNode(it.asJsonObject, sourceRoot) else null
+            },
+            raw = Jsons.elementToAny(nodeObj) as? Map<String, Any?> ?: emptyMap()
+        )
+    }
+
+    private fun parseRenderNode(nodeObj: JsonObject): ComposeRenderNodeDto? {
+        val renderId = getString(nodeObj, "a", "renderId") ?: return null
+        return ComposeRenderNodeDto(
+            renderId = renderId,
+            parentRenderId = getString(nodeObj, "b", "parentRenderId"),
+            left = getInt(nodeObj, "c", "left") ?: 0,
+            top = getInt(nodeObj, "d", "top") ?: 0,
+            right = getInt(nodeObj, "e", "right") ?: 0,
+            bottom = getInt(nodeObj, "f", "bottom") ?: 0,
+            visible = getBoolean(nodeObj, "g", "visible") ?: true,
+            alpha = getDouble(nodeObj, "h", "alpha") ?: 1.0,
+            zIndex = getDouble(nodeObj, "i", "zIndex") ?: 0.0,
+            modifierSummary = getString(nodeObj, "j", "modifierSummary"),
+            styleSummary = getString(nodeObj, "k", "styleSummary"),
+            componentId = getString(nodeObj, "l", "componentId"),
+            typeName = getString(nodeObj, "n", "typeName"),
+            children = (getArray(nodeObj, "m", "children") ?: JsonArray()).mapNotNull {
+                if (it.isJsonObject) parseRenderNode(it.asJsonObject) else null
+            },
+            raw = Jsons.elementToAny(nodeObj) as? Map<String, Any?> ?: emptyMap()
+        )
+    }
+
+    private fun parseSemanticsNode(nodeObj: JsonObject): ComposeSemanticsNodeDto? {
+        val semanticsId = getString(nodeObj, "a", "semanticsId") ?: return null
+        val actionArray = getArray(nodeObj, "t", "actions") ?: JsonArray()
+        val actions = actionArray.mapNotNull { action ->
+            if (action.isJsonPrimitive) runCatching { action.asJsonPrimitive.asString }.getOrNull() else null
+        }
+        val children = (getArray(nodeObj, "u", "children") ?: JsonArray()).mapNotNull {
+            if (it.isJsonObject) parseSemanticsNode(it.asJsonObject) else null
+        }
+        return ComposeSemanticsNodeDto(
+            semanticsId = semanticsId,
+            renderId = getString(nodeObj, "b", "renderId"),
+            componentId = getString(nodeObj, "c", "componentId"),
+            legacyNodeId = getString(nodeObj, "d", "legacyNodeId"),
+            left = getInt(nodeObj, "e", "left") ?: 0,
+            top = getInt(nodeObj, "f", "top") ?: 0,
+            right = getInt(nodeObj, "g", "right") ?: 0,
+            bottom = getInt(nodeObj, "h", "bottom") ?: 0,
+            text = getString(nodeObj, "i", "text"),
+            contentDescription = getString(nodeObj, "j", "contentDescription"),
+            testTag = getString(nodeObj, "k", "testTag"),
+            clickable = getBoolean(nodeObj, "l", "clickable") ?: false,
+            enabled = getBoolean(nodeObj, "m", "enabled") ?: true,
+            focused = getBoolean(nodeObj, "n", "focused") ?: false,
+            visibleToUser = getBoolean(nodeObj, "o", "visibleToUser") ?: true,
+            selected = getBoolean(nodeObj, "p", "selected") ?: false,
+            checkable = getBoolean(nodeObj, "q", "checkable") ?: false,
+            checked = getBoolean(nodeObj, "r", "checked") ?: false,
+            focusable = getBoolean(nodeObj, "s", "focusable") ?: false,
+            role = getString(nodeObj, "v", "role"),
+            className = getString(nodeObj, "w", "className"),
+            actions = actions,
+            children = children,
+            raw = Jsons.elementToAny(nodeObj) as? Map<String, Any?> ?: emptyMap()
+        )
+    }
+
+    private fun parseLink(nodeObj: JsonObject): ComposeLinkDto? {
+        val sourceType = getString(nodeObj, "a", "sourceNodeType") ?: return null
+        val targetType = getString(nodeObj, "b", "targetNodeType") ?: return null
+        val sourceId = getString(nodeObj, "c", "sourceId") ?: return null
+        val targetId = getString(nodeObj, "d", "targetId") ?: return null
+        return ComposeLinkDto(
+            sourceNodeType = sourceType,
+            targetNodeType = targetType,
+            sourceId = sourceId,
+            targetId = targetId,
+            confidence = getDouble(nodeObj, "e", "confidence") ?: 0.0,
+            linkStrategy = getString(nodeObj, "f", "linkStrategy"),
+            raw = Jsons.elementToAny(nodeObj) as? Map<String, Any?> ?: emptyMap()
         )
     }
 
@@ -182,6 +452,52 @@ object SnapshotMapper {
             raw = Jsons.elementToAny(nodeObj) as? Map<String, Any?> ?: emptyMap()
         )
     }
+
+    private fun normalizeSourcePath(sourceRoot: String?, token: String?, existingPath: String?): NormalizedSourcePath {
+        val candidate = firstNonBlank(existingPath, extractPathLike(token))
+        if (candidate.isNullOrBlank()) {
+            return NormalizedSourcePath(null, if (!token.isNullOrBlank()) "raw" else "unknown")
+        }
+        if (sourceRoot.isNullOrBlank()) {
+            return NormalizedSourcePath(cleanPath(candidate), "raw")
+        }
+
+        val normalized = relativizeToRoot(sourceRoot, candidate)
+        if (normalized != null) {
+            return NormalizedSourcePath(normalized, "normalized")
+        }
+        return NormalizedSourcePath(cleanPath(candidate), "raw")
+    }
+
+    private fun relativizeToRoot(sourceRoot: String, candidate: String): String? {
+        val root = runCatching { Path.of(sourceRoot).toAbsolutePath().normalize() }.getOrNull() ?: return null
+        val cleanedCandidate = cleanPath(candidate)
+        val candidatePath = runCatching { Path.of(cleanedCandidate).toAbsolutePath().normalize() }.getOrNull()
+        if (candidatePath != null && candidatePath.startsWith(root)) {
+            return cleanPath(root.relativize(candidatePath).toString())
+        }
+        return if (!cleanedCandidate.startsWith("/") && !cleanedCandidate.contains(":") && (cleanedCandidate.contains(".kt") || cleanedCandidate.contains(".java"))) {
+            cleanedCandidate
+        } else {
+            null
+        }
+    }
+
+    private fun extractPathLike(token: String?): String? {
+        if (token.isNullOrBlank()) return null
+        val text = token.trim()
+        val markerIndex = text.lastIndexOf(':')
+        val tail = if (markerIndex >= 0) text.substring(markerIndex + 1) else text
+        val hashIndex = tail.indexOf('#')
+        val candidate = if (hashIndex >= 0) tail.substring(0, hashIndex) else tail
+        return if (candidate.contains(".kt") || candidate.contains(".java")) cleanPath(candidate) else null
+    }
+
+    private fun cleanPath(path: String): String = path.replace('\\', '/').removePrefix("./")
+
+    private fun firstNonBlank(vararg values: String?): String? = values.firstOrNull { !it.isNullOrBlank() }
+
+    private data class NormalizedSourcePath(val path: String?, val resolution: String)
 
     private fun getObj(obj: JsonObject?, vararg keys: String): JsonObject? {
         if (obj == null) return null

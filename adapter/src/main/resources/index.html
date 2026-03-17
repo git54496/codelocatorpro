@@ -21,6 +21,8 @@
     .top { display:flex; gap:8px; align-items:center; padding:12px 16px; border-bottom:1px solid var(--line); background:var(--panel); position: sticky; top:0; z-index:2; }
     .top input, .top select { border:1px solid var(--line); border-radius:8px; padding:8px 10px; background:#fff; }
     .top button { border:1px solid #1b75d0; background:#0b84f3; color:#fff; border-radius:8px; padding:8px 12px; cursor:pointer; }
+    .top .toggle { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); }
+    .top .toggle input { margin:0; }
     .layout { display:grid; grid-template-columns: var(--left-pane-width) var(--splitter-width) minmax(320px, 1fr) var(--splitter-width) var(--right-pane-width); gap: 0; padding: 12px; height: calc(100vh - 64px); box-sizing: border-box; }
     .panel { background: var(--panel); border:1px solid var(--line); border-radius:12px; overflow:auto; }
     .splitter {
@@ -110,8 +112,16 @@
     <select id="grabSelect"></select>
     <label>Search</label>
     <input id="search" placeholder="memAddr/id/class/text/testTag/nodeId" />
+    <label>Mode</label>
+    <select id="treeMode">
+      <option value="view">View Tree</option>
+      <option value="component">Component Tree</option>
+      <option value="render">Render Tree</option>
+      <option value="semantics">Semantics Tree</option>
+    </select>
+    <label class="toggle"><input id="frameworkToggle" type="checkbox" />Framework</label>
     <button id="grabBtn">Grab</button>
-    <button id="copyBtn">Copy memAddr</button>
+    <button id="copyBtn">Copy key</button>
     <button id="exportAgentBtn">导出到agent</button>
     <span id="meta" class="muted"></span>
   </div>
@@ -136,11 +146,22 @@
       snapshot: null,
       currentGrabId: null,
       selected: null,
+      treeMode: 'view',
+      showFrameworkNodes: false,
       scale: 1,
       collapsed: new Set(),
       geomList: [],
       geomByMem: {},
-      hitCycle: null
+      hitCycle: null,
+      compose: {
+        componentRoots: [],
+        renderRoots: [],
+        semanticsRoots: [],
+        componentByKey: {},
+        renderByKey: {},
+        semanticsByKey: {},
+        linksBySource: {}
+      }
     };
     const treeEl = document.getElementById('tree');
     const propsEl = document.getElementById('props');
@@ -149,6 +170,8 @@
     const rightSplitterEl = document.getElementById('rightSplitter');
     const grabSelect = document.getElementById('grabSelect');
     const searchInput = document.getElementById('search');
+    const treeModeSelect = document.getElementById('treeMode');
+    const frameworkToggle = document.getElementById('frameworkToggle');
     const img = document.getElementById('screenImg');
     const overlay = document.getElementById('overlay');
     const canvasWrap = document.getElementById('canvasWrap');
@@ -231,6 +254,7 @@
       b3: 'mShadowRadius',
       b4: 'mShadowColor',
       b5: 'mComposeNodes',
+      b6: 'mComposeCapture',
       df: 'mPivotX',
       dg: 'mPivotY',
       dk: 'mSlopBoundLeft',
@@ -264,14 +288,18 @@
       state.collapsed = new Set();
       state.hitCycle = null;
       buildGeometryIndex();
-      metaEl.textContent = `${state.snapshot.meta.source} | ${state.snapshot.meta.packageName || '-'} | ${state.snapshot.meta.activity || '-'}`;
+      buildComposeState();
+      state.treeMode = state.compose.componentRoots.length ? 'component' : 'view';
+      treeModeSelect.value = state.treeMode;
+      frameworkToggle.checked = state.showFrameworkNodes;
+      frameworkToggle.disabled = !state.compose.componentRoots.length;
+      metaEl.textContent = `${state.snapshot.meta.source} | ${state.snapshot.meta.packageName || '-'} | ${state.snapshot.meta.activity || '-'} | components=${Object.keys(state.compose.componentByKey).length} render=${Object.keys(state.compose.renderByKey).length} semantics=${Object.keys(state.compose.semanticsByKey).length}`;
       img.onload = () => {
         fitImageToViewport();
         redraw();
         setLoading(false);
       };
       img.onerror = () => {
-        // Avoid showing stale image when current grab has no screenshot or load failed.
         img.removeAttribute('src');
         stageEl.style.width = '0px';
         stageEl.style.height = '0px';
@@ -341,9 +369,7 @@
             alpha: Number(n.alpha == null ? 1 : n.alpha)
           };
           list.push(geom);
-          if (n.memAddr) {
-            byMem[n.memAddr] = geom;
-          }
+          if (n.memAddr) byMem[n.memAddr] = geom;
           walk(n.children || [], absLeft, absTop, depth + 1);
         });
       }
@@ -351,6 +377,89 @@
       walk(state.snapshot.uiTree || [], 0, 0, 0);
       state.geomList = list;
       state.geomByMem = byMem;
+    }
+
+    function buildComposeState() {
+      const compose = {
+        componentRoots: [],
+        renderRoots: [],
+        semanticsRoots: [],
+        componentByKey: {},
+        renderByKey: {},
+        semanticsByKey: {},
+        linksBySource: {}
+      };
+
+      function composeKey(hostMemAddr, type, id) {
+        if (!hostMemAddr || !type || !id) return '';
+        if (type === 'component') return `${hostMemAddr}:component:${id}`;
+        if (type === 'render') return `${hostMemAddr}:render:${id}`;
+        if (type === 'semantics') return `${hostMemAddr}:semantics:${id}`;
+        return `${hostMemAddr}:${type}:${id}`;
+      }
+
+      function wrapComponent(node, hostMemAddr, parentKey = null) {
+        const key = composeKey(hostMemAddr, 'component', node.componentId);
+        const wrapped = {
+          ...node,
+          kind: 'component',
+          key,
+          hostMemAddr,
+          parentKey,
+          children: (node.children || []).map(child => wrapComponent(child, hostMemAddr, key))
+        };
+        compose.componentByKey[key] = wrapped;
+        return wrapped;
+      }
+
+      function wrapRender(node, hostMemAddr, parentKey = null) {
+        const key = composeKey(hostMemAddr, 'render', node.renderId);
+        const wrapped = {
+          ...node,
+          kind: 'render',
+          key,
+          hostMemAddr,
+          parentKey: node.parentRenderId ? composeKey(hostMemAddr, 'render', node.parentRenderId) : parentKey,
+          children: (node.children || []).map(child => wrapRender(child, hostMemAddr, key))
+        };
+        compose.renderByKey[key] = wrapped;
+        return wrapped;
+      }
+
+      function wrapSemantics(node, hostMemAddr, parentKey = null) {
+        const key = composeKey(hostMemAddr, 'semantics', node.semanticsId);
+        const wrapped = {
+          ...node,
+          kind: 'semantics',
+          key,
+          hostMemAddr,
+          parentKey,
+          children: (node.children || []).map(child => wrapSemantics(child, hostMemAddr, key))
+        };
+        compose.semanticsByKey[key] = wrapped;
+        return wrapped;
+      }
+
+      function registerLinks(hostMemAddr, links) {
+        (links || []).forEach((link) => {
+          const sourceKey = composeKey(hostMemAddr, link.sourceNodeType, link.sourceId);
+          const targetKey = composeKey(hostMemAddr, link.targetNodeType, link.targetId);
+          if (!sourceKey || !targetKey) return;
+          if (!compose.linksBySource[sourceKey]) compose.linksBySource[sourceKey] = [];
+          compose.linksBySource[sourceKey].push({ ...link, sourceKey, targetKey, hostMemAddr });
+        });
+      }
+
+      flatten(state.snapshot.uiTree || []).forEach((viewNode) => {
+        const capture = viewNode.composeCapture;
+        if (!capture) return;
+        (capture.componentTree || []).forEach((node) => compose.componentRoots.push(wrapComponent(node, viewNode.memAddr)));
+        (capture.renderTree || []).forEach((node) => compose.renderRoots.push(wrapRender(node, viewNode.memAddr)));
+        (capture.semanticsTree || []).forEach((node) => compose.semanticsRoots.push(wrapSemantics(node, viewNode.memAddr)));
+        registerLinks(viewNode.memAddr, capture.links || []);
+      });
+
+      state.compose = compose;
     }
 
     function fitImageToViewport() {
@@ -372,131 +481,267 @@
       overlay.height = renderH;
     }
 
-    function renderTree() {
-      const q = searchInput.value.trim().toLowerCase();
-      const forceExpandForSearch = !!q;
-
-      function match(n) {
-        if (!q) return true;
-        return (n.memAddr || '').toLowerCase().includes(q)
-          || (n.idStr || '').toLowerCase().includes(q)
-          || (n.className || '').toLowerCase().includes(q)
-          || (n.text || '').toLowerCase().includes(q)
-          || hasComposeMatch(n, q);
+    function getVisibleComponentRoots() {
+      function project(nodes) {
+        const out = [];
+        (nodes || []).forEach((node) => {
+          const projectedChildren = project(node.children || []);
+          if (state.showFrameworkNodes || !node.frameworkNode) {
+            out.push({ ...node, children: projectedChildren });
+          } else {
+            out.push(...projectedChildren);
+          }
+        });
+        return out;
       }
-
-      function nodeHtml(n) {
-        const selected = state.selected && state.selected.memAddr === n.memAddr ? 'selected' : '';
-        const idLabel = n.idStr ? `  id=${n.idStr}` : '';
-        const composeCount = countComposeNodes(n.composeNodes || []);
-        const composeLabel = composeCount > 0 ? `  compose=${composeCount}` : '';
-        const label = `${n.className}  ${n.memAddr}${idLabel}${n.text ? '  ' + n.text : ''}${composeLabel}`;
-        const hasChildren = (n.children || []).length > 0;
-        const collapsed = !forceExpandForSearch && state.collapsed.has(n.memAddr);
-        const children = (n.children || []).map(nodeHtml).join('');
-        if (!match(n) && !children) return '';
-        const arrow = hasChildren ? (collapsed ? '&#9654;' : '&#9660;') : '';
-        const arrowCls = hasChildren ? 'twisty' : 'twisty placeholder';
-        return `
-          <li>
-            <div class="tree-row ${selected}" data-action="select" data-mem="${n.memAddr}">
-              <span class="${arrowCls}" data-action="toggle" data-mem="${n.memAddr}">${arrow}</span>
-              <span class="tree-label">${escapeHtml(label)}</span>
-            </div>
-            ${children && !collapsed ? `<ul>${children}</ul>` : ''}
-          </li>
-        `;
-      }
-
-      const html = `<ul>${(state.snapshot.uiTree || []).map(nodeHtml).join('')}</ul>`;
-      treeEl.innerHTML = html;
+      return project(state.compose.componentRoots || []);
     }
 
-    function findPath(nodes, targetMem, path = []) {
+    function getCurrentRoots() {
+      if (!state.snapshot) return [];
+      if (state.treeMode === 'component') return getVisibleComponentRoots();
+      if (state.treeMode === 'render') return state.compose.renderRoots || [];
+      if (state.treeMode === 'semantics') return state.compose.semanticsRoots || [];
+      return state.snapshot.uiTree || [];
+    }
+
+    function getNodeKey(node) {
+      return state.treeMode === 'view' ? node.memAddr : node.key;
+    }
+
+    function getNodeChildren(node) {
+      return node.children || [];
+    }
+
+    function getSelectedKey() {
+      return state.selected ? state.selected.key : null;
+    }
+
+    function treeNodeLabel(node) {
+      if (state.treeMode === 'view') {
+        const idLabel = node.idStr ? `  id=${node.idStr}` : '';
+        const composeCount = countComposeNodes(node.composeNodes || []);
+        const composeLabel = composeCount > 0 ? `  compose=${composeCount}` : '';
+        return `${node.className}  ${node.memAddr}${idLabel}${node.text ? '  ' + node.text : ''}${composeLabel}`;
+      }
+      if (state.treeMode === 'component') {
+        const fileLabel = node.sourcePath ? `  ${node.sourcePath}${node.sourceLine ? ':' + node.sourceLine : ''}` : '';
+        const fwLabel = node.frameworkNode ? '  [framework]' : '';
+        return `${node.displayName || node.componentId}  ${node.componentId}${fileLabel}${fwLabel}`;
+      }
+      if (state.treeMode === 'render') {
+        const label = node.typeName || node.renderId;
+        return `${label}  (${node.left}, ${node.top}, ${node.right}, ${node.bottom})${node.componentId ? '  component=' + node.componentId : ''}`;
+      }
+      const semLabel = node.className || node.role || node.semanticsId;
+      return `${semLabel}  ${node.text || node.testTag || node.contentDescription || ''}${node.componentId ? '  component=' + node.componentId : ''}`;
+    }
+
+    function matchesNode(node, query) {
+      if (!query) return true;
+      if (state.treeMode === 'view') {
+        return (node.memAddr || '').toLowerCase().includes(query)
+          || (node.idStr || '').toLowerCase().includes(query)
+          || (node.className || '').toLowerCase().includes(query)
+          || (node.text || '').toLowerCase().includes(query)
+          || hasComposeMatch(node, query);
+      }
+      if (state.treeMode === 'component') {
+        return (node.componentId || '').toLowerCase().includes(query)
+          || (node.displayName || '').toLowerCase().includes(query)
+          || (node.sourcePath || '').toLowerCase().includes(query)
+          || (node.sourcePathToken || '').toLowerCase().includes(query);
+      }
+      if (state.treeMode === 'render') {
+        return (node.renderId || '').toLowerCase().includes(query)
+          || (node.typeName || '').toLowerCase().includes(query)
+          || (node.componentId || '').toLowerCase().includes(query)
+          || (node.modifierSummary || '').toLowerCase().includes(query)
+          || (node.styleSummary || '').toLowerCase().includes(query);
+      }
+      return (node.semanticsId || '').toLowerCase().includes(query)
+        || (node.role || '').toLowerCase().includes(query)
+        || (node.className || '').toLowerCase().includes(query)
+        || (node.legacyNodeId || '').toLowerCase().includes(query)
+        || (node.text || '').toLowerCase().includes(query)
+        || (node.testTag || '').toLowerCase().includes(query)
+        || (node.contentDescription || '').toLowerCase().includes(query);
+    }
+
+    function findPath(nodes, targetKey, path = []) {
       for (const node of nodes) {
-        path.push(node.memAddr);
-        if (node.memAddr === targetMem) return path.slice();
-        const found = findPath(node.children || [], targetMem, path);
+        const key = state.treeMode === 'view' ? node.memAddr : node.key;
+        path.push(key);
+        if (key === targetKey) return path.slice();
+        const found = findPath(getNodeChildren(node), targetKey, path);
         if (found) return found;
         path.pop();
       }
       return null;
     }
 
-    function selectByMem(mem, scrollIntoView) {
-      const all = flatten(state.snapshot.uiTree || []);
-      state.selected = all.find(n => n.memAddr === mem) || null;
+    function renderTree() {
+      const q = searchInput.value.trim().toLowerCase();
+      const forceExpandForSearch = !!q;
+      const roots = getCurrentRoots();
+
+      function nodeHtml(node) {
+        const key = getNodeKey(node);
+        const selected = getSelectedKey() === key ? 'selected' : '';
+        const childrenHtml = getNodeChildren(node).map(nodeHtml).join('');
+        if (!matchesNode(node, q) && !childrenHtml) return '';
+        const hasChildren = getNodeChildren(node).length > 0;
+        const collapsed = !forceExpandForSearch && state.collapsed.has(key);
+        const arrow = hasChildren ? (collapsed ? '&#9654;' : '&#9660;') : '';
+        const arrowCls = hasChildren ? 'twisty' : 'twisty placeholder';
+        return `
+          <li>
+            <div class="tree-row ${selected}" data-action="select" data-key="${escapeHtml(key)}">
+              <span class="${arrowCls}" data-action="toggle" data-key="${escapeHtml(key)}">${arrow}</span>
+              <span class="tree-label">${escapeHtml(treeNodeLabel(node))}</span>
+            </div>
+            ${childrenHtml && !collapsed ? `<ul>${childrenHtml}</ul>` : ''}
+          </li>
+        `;
+      }
+
+      treeEl.innerHTML = `<ul>${roots.map(nodeHtml).join('')}</ul>`;
+    }
+
+    function getSelectedEntity() {
+      if (!state.selected) return null;
+      if (state.selected.kind === 'view') {
+        return flatten(state.snapshot.uiTree || []).find(n => n.memAddr === state.selected.key) || null;
+      }
+      if (state.selected.kind === 'component') return state.compose.componentByKey[state.selected.key] || null;
+      if (state.selected.kind === 'render') return state.compose.renderByKey[state.selected.key] || null;
+      if (state.selected.kind === 'semantics') return state.compose.semanticsByKey[state.selected.key] || null;
+      return null;
+    }
+
+    function selectNode(kind, key, scrollIntoView) {
+      state.selected = key ? { kind, key } : null;
       if (state.selected) {
-        const path = findPath(state.snapshot.uiTree || [], mem) || [];
-        path.slice(0, -1).forEach((m) => state.collapsed.delete(m));
+        const path = findPath(getCurrentRoots(), key) || [];
+        path.slice(0, -1).forEach((itemKey) => state.collapsed.delete(itemKey));
       }
       renderTree();
       renderProps();
       redraw();
       if (scrollIntoView && state.selected) {
         requestAnimationFrame(() => {
-          const row = treeEl.querySelector(`.tree-row[data-mem="${cssAttrEscape(mem)}"]`);
-          if (row) {
-            row.scrollIntoView({ block: 'center', inline: 'nearest' });
-          }
+          const row = treeEl.querySelector(`.tree-row[data-key="${cssAttrEscape(key)}"]`);
+          if (row) row.scrollIntoView({ block: 'center', inline: 'nearest' });
         });
       }
     }
 
+    function linkedKeys(sourceKey, targetType) {
+      const links = state.compose.linksBySource[sourceKey] || [];
+      const keys = links
+        .filter(link => !targetType || link.targetNodeType === targetType)
+        .map(link => link.targetKey);
+      return Array.from(new Set(keys));
+    }
+
     function renderProps() {
-      if (!state.selected) {
-        propsEl.innerHTML = '<div class="muted">Select a view node</div>';
+      const entity = getSelectedEntity();
+      if (!entity || !state.selected) {
+        propsEl.innerHTML = '<div class="muted">Select a node</div>';
         return;
       }
-      const composeTable = buildComposeTable(state.selected.composeNodes || []);
-      const decodedRows = buildDecodedRawRows(state.selected.raw);
-      const decodedTable = decodedRows.length
-        ? `<table class="props-table">
-            <thead>
-              <tr><th>Raw Key</th><th>Mapped Field</th><th>Value</th></tr>
-            </thead>
-            <tbody>
-              ${decodedRows.map((row) => `<tr>
-                <td class="props-key">${escapeHtml(row.key)}</td>
-                <td class="props-key">${escapeHtml(row.mapped)}</td>
-                <td class="props-value">${escapeHtml(row.value)}</td>
-              </tr>`).join('')}
-            </tbody>
-          </table>`
-        : '<div class="muted">No decoded raw params</div>';
-      propsEl.innerHTML = `<h3>${state.selected.className}</h3>
-        <div><b>memAddr:</b> ${state.selected.memAddr}</div>
-        <div><b>id:</b> ${state.selected.idStr || '-'}</div>
-        <div><b>text:</b> ${state.selected.text || '-'}</div>
-        <div><b>frame:</b> (${state.selected.left}, ${state.selected.top}, ${state.selected.width}, ${state.selected.height})</div>
-        <div><b>alpha:</b> ${state.selected.alpha}</div>
-        <div><b>visible:</b> ${state.selected.visible}</div>
-        <h4>Compose Semantics</h4>
-        ${composeTable}
-        <h4>Decoded Params (plugin mapping)</h4>
-        ${decodedTable}
-        <h4>Raw</h4>
-        <pre>${escapeHtml(JSON.stringify(state.selected.raw || {}, null, 2))}</pre>`;
+      if (state.selected.kind === 'view') {
+        const composeTable = buildComposeTable(entity.composeNodes || []);
+        const decodedRows = buildDecodedRawRows(entity.raw);
+        const decodedTable = decodedRows.length
+          ? `<table class="props-table">
+              <thead><tr><th>Raw Key</th><th>Mapped Field</th><th>Value</th></tr></thead>
+              <tbody>${decodedRows.map((row) => `<tr><td class="props-key">${escapeHtml(row.key)}</td><td class="props-key">${escapeHtml(row.mapped)}</td><td class="props-value">${escapeHtml(row.value)}</td></tr>`).join('')}</tbody>
+            </table>`
+          : '<div class="muted">No decoded raw params</div>';
+        propsEl.innerHTML = `<h3>${entity.className}</h3>
+          <div><b>memAddr:</b> ${entity.memAddr}</div>
+          <div><b>id:</b> ${entity.idStr || '-'}</div>
+          <div><b>text:</b> ${entity.text || '-'}</div>
+          <div><b>frame:</b> (${entity.left}, ${entity.top}, ${entity.width}, ${entity.height})</div>
+          <div><b>alpha:</b> ${entity.alpha}</div>
+          <div><b>visible:</b> ${entity.visible}</div>
+          <h4>Compose Semantics</h4>
+          ${composeTable}
+          <h4>Decoded Params</h4>
+          ${decodedTable}
+          <h4>Raw</h4>
+          <pre>${escapeHtml(JSON.stringify(entity.raw || {}, null, 2))}</pre>`;
+        return;
+      }
+
+      if (state.selected.kind === 'component') {
+        const renderKeys = linkedKeys(entity.key, 'render');
+        const semanticsKeys = linkedKeys(entity.key, 'semantics');
+        propsEl.innerHTML = `<h3>${escapeHtml(entity.displayName || entity.componentId)}</h3>
+          <div><b>componentKey:</b> ${escapeHtml(entity.key)}</div>
+          <div><b>componentId:</b> ${escapeHtml(entity.componentId || '')}</div>
+          <div><b>source:</b> ${escapeHtml(entity.sourcePath || entity.sourcePathToken || '-')} ${entity.sourceLine ? ':' + entity.sourceLine : ''}</div>
+          <div><b>confidence:</b> ${Number(entity.confidence || 0).toFixed(2)}</div>
+          <div><b>pathResolution:</b> ${escapeHtml(entity.pathResolution || '-')}</div>
+          <div><b>frameworkNode:</b> ${entity.frameworkNode ? 'true' : 'false'}</div>
+          <h4>Linked Render</h4>${buildSimpleList(renderKeys)}
+          <h4>Linked Semantics</h4>${buildSimpleList(semanticsKeys)}
+          <h4>Raw</h4><pre>${escapeHtml(JSON.stringify(entity.raw || {}, null, 2))}</pre>`;
+        return;
+      }
+
+      if (state.selected.kind === 'render') {
+        const semanticsKeys = linkedKeys(entity.key, 'semantics');
+        const componentKeys = linkedKeys(entity.key, 'component');
+        propsEl.innerHTML = `<h3>${escapeHtml(entity.typeName || entity.renderId)}</h3>
+          <div><b>renderKey:</b> ${escapeHtml(entity.key)}</div>
+          <div><b>renderId:</b> ${escapeHtml(entity.renderId)}</div>
+          <div><b>typeName:</b> ${escapeHtml(entity.typeName || '-')}</div>
+          <div><b>bounds:</b> (${entity.left}, ${entity.top}, ${entity.right}, ${entity.bottom})</div>
+          <div><b>visible:</b> ${entity.visible}</div>
+          <div><b>alpha:</b> ${entity.alpha}</div>
+          <div><b>zIndex:</b> ${entity.zIndex}</div>
+          <div><b>modifierSummary:</b> ${escapeHtml(entity.modifierSummary || '-')}</div>
+          <div><b>styleSummary:</b> ${escapeHtml(entity.styleSummary || '-')}</div>
+          <div><b>componentId:</b> ${escapeHtml(entity.componentId || '-')}</div>
+          <h4>Linked Components</h4>${buildSimpleList(componentKeys)}
+          <h4>Linked Semantics</h4>${buildSimpleList(semanticsKeys)}
+          <h4>Raw</h4><pre>${escapeHtml(JSON.stringify(entity.raw || {}, null, 2))}</pre>`;
+        return;
+      }
+
+      const renderKeys = linkedKeys(entity.key, 'render');
+      const componentKeys = linkedKeys(entity.key, 'component');
+      propsEl.innerHTML = `<h3>${escapeHtml(entity.className || entity.role || entity.semanticsId)}</h3>
+        <div><b>semanticsKey:</b> ${escapeHtml(entity.key)}</div>
+        <div><b>semanticsId:</b> ${escapeHtml(entity.semanticsId || '')}</div>
+        <div><b>role:</b> ${escapeHtml(entity.role || '-')}</div>
+        <div><b>className:</b> ${escapeHtml(entity.className || '-')}</div>
+        <div><b>legacyNodeId:</b> ${escapeHtml(entity.legacyNodeId || '-')}</div>
+        <div><b>text:</b> ${escapeHtml(entity.text || '-')}</div>
+        <div><b>testTag:</b> ${escapeHtml(entity.testTag || '-')}</div>
+        <div><b>contentDescription:</b> ${escapeHtml(entity.contentDescription || '-')}</div>
+        <div><b>bounds:</b> (${entity.left}, ${entity.top}, ${entity.right}, ${entity.bottom})</div>
+        <div><b>state:</b> ${escapeHtml(formatComposeState(entity))}</div>
+        <div><b>actions:</b> ${escapeHtml((entity.actions || []).join(', ') || '-')}</div>
+        <h4>Linked Render</h4>${buildSimpleList(renderKeys)}
+        <h4>Linked Components</h4>${buildSimpleList(componentKeys)}
+        <h4>Raw</h4><pre>${escapeHtml(JSON.stringify(entity.raw || {}, null, 2))}</pre>`;
+    }
+
+    function buildSimpleList(items) {
+      if (!items || !items.length) return '<div class="muted">None</div>';
+      return `<ul>${items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
     }
 
     function buildComposeTable(composeNodes) {
       const rows = flattenCompose(composeNodes || []);
-      if (!rows.length) {
-        return '<div class="muted">No compose semantics nodes</div>';
-      }
+      if (!rows.length) return '<div class="muted">No compose semantics nodes</div>';
       return `<div><b>nodeCount:</b> ${rows.length}</div>
         <table class="props-table">
           <thead>
-            <tr>
-              <th>depth</th>
-              <th>nodeId</th>
-              <th>text</th>
-              <th>testTag</th>
-              <th>contentDesc</th>
-              <th>bounds</th>
-              <th>state</th>
-              <th>actions</th>
-            </tr>
+            <tr><th>depth</th><th>nodeId</th><th>text</th><th>testTag</th><th>contentDesc</th><th>bounds</th><th>state</th><th>actions</th></tr>
           </thead>
           <tbody>
             ${rows.map(({ node, depth }) => `<tr>
@@ -535,14 +780,7 @@
         if (raw === 'G' || raw === '8') return 'gone';
       }
       if (key === 'aa') {
-        const typeMap = {
-          0: 'TYPE_NORMAL',
-          1: 'TYPE_TEXT',
-          2: 'TYPE_IMAGE',
-          3: 'TYPE_LINEAR',
-          4: 'TYPE_FRAME',
-          5: 'TYPE_RELATIVE'
-        };
+        const typeMap = { 0: 'TYPE_NORMAL', 1: 'TYPE_TEXT', 2: 'TYPE_IMAGE', 3: 'TYPE_LINEAR', 4: 'TYPE_FRAME', 5: 'TYPE_RELATIVE' };
         if (typeof value === 'number' && typeMap[value]) return `${value} (${typeMap[value]})`;
       }
       if (value == null) return '';
@@ -564,25 +802,50 @@
     function buildDecodedRawRows(raw) {
       if (!raw || typeof raw !== 'object') return [];
       const keys = sortRawKeys(Object.keys(raw));
-      return keys.map((key) => {
-        const mapped = RAW_FIELD_MAP[key] || '(unknown)';
-        const value = formatRawValue(key, raw[key]);
-        return { key, mapped, value };
-      });
+      return keys.map((key) => ({ key, mapped: RAW_FIELD_MAP[key] || '(unknown)', value: formatRawValue(key, raw[key]) }));
     }
 
     function redraw() {
       ctx.clearRect(0, 0, overlay.width, overlay.height);
       if (!state.selected) return;
-      const geom = state.geomByMem[state.selected.memAddr];
-      if (!geom) return;
+      const rects = selectionRects();
+      rects.forEach((rect, index) => drawRect(rect, index));
+    }
+
+    function selectionRects() {
+      const entity = getSelectedEntity();
+      if (!entity || !state.selected) return [];
+      if (state.selected.kind === 'view') {
+        const geom = state.geomByMem[entity.memAddr];
+        return geom ? [{ left: geom.absLeft, top: geom.absTop, right: geom.absLeft + geom.width, bottom: geom.absTop + geom.height }] : [];
+      }
+      if (state.selected.kind === 'render') {
+        return [{ left: entity.left, top: entity.top, right: entity.right, bottom: entity.bottom }];
+      }
+      const renderKeys = state.selected.kind === 'semantics'
+        ? Array.from(new Set([...(linkedKeys(entity.key, 'render')), ...(entity.renderId ? [`${entity.hostMemAddr}:render:${entity.renderId}`] : [])]))
+        : linkedKeys(entity.key, 'render');
+      const rects = renderKeys.map(key => state.compose.renderByKey[key]).filter(Boolean).map(node => ({
+        left: Number(node.left || 0),
+        top: Number(node.top || 0),
+        right: Number(node.right || 0),
+        bottom: Number(node.bottom || 0)
+      }));
+      if (rects.length) return rects;
+      const geom = state.geomByMem[entity.hostMemAddr];
+      return geom ? [{ left: geom.absLeft, top: geom.absTop, right: geom.absLeft + geom.width, bottom: geom.absTop + geom.height }] : [];
+    }
+
+    function drawRect(rect, index) {
       const s = state.scale || 1;
-      const x = Number(geom.absLeft || 0) * s;
-      const y = Number(geom.absTop || 0) * s;
-      const w = Number(geom.width || 0) * s;
-      const h = Number(geom.height || 0) * s;
-      ctx.fillStyle = 'rgba(11,132,243,0.18)';
-      ctx.strokeStyle = '#0b84f3';
+      const x = Number(rect.left || 0) * s;
+      const y = Number(rect.top || 0) * s;
+      const w = Math.max(0, Number(rect.right || 0) - Number(rect.left || 0)) * s;
+      const h = Math.max(0, Number(rect.bottom || 0) - Number(rect.top || 0)) * s;
+      const fills = ['rgba(11,132,243,0.18)', 'rgba(255,122,36,0.18)', 'rgba(18,166,93,0.18)'];
+      const strokes = ['#0b84f3', '#ff7a24', '#12a65d'];
+      ctx.fillStyle = fills[index % fills.length];
+      ctx.strokeStyle = strokes[index % strokes.length];
       ctx.lineWidth = 2;
       ctx.fillRect(x, y, w, h);
       ctx.strokeRect(x, y, w, h);
@@ -592,15 +855,14 @@
       const rect = overlay.getBoundingClientRect();
       const x = (clientX - rect.left) / (state.scale || 1);
       const y = (clientY - rect.top) / (state.scale || 1);
-      const hits = (state.geomList || [])
-        .filter((g) => {
-          const left = Number(g.absLeft || 0);
-          const top = Number(g.absTop || 0);
-          const width = Number(g.width || 0);
-          const height = Number(g.height || 0);
-          const visible = g.visible && Number(g.alpha || 0) > 0;
-          return visible && width > 0 && height > 0 && x >= left && y >= top && x <= left + width && y <= top + height;
-        });
+      const hits = (state.geomList || []).filter((g) => {
+        const left = Number(g.absLeft || 0);
+        const top = Number(g.absTop || 0);
+        const width = Number(g.width || 0);
+        const height = Number(g.height || 0);
+        const visible = g.visible && Number(g.alpha || 0) > 0;
+        return visible && width > 0 && height > 0 && x >= left && y >= top && x <= left + width && y <= top + height;
+      });
       hits.sort((a, b) => {
         if (b.depth !== a.depth) return b.depth - a.depth;
         const areaA = Number(a.width || 0) * Number(a.height || 0);
@@ -608,10 +870,7 @@
         if (areaA !== areaB) return areaA - areaB;
         return b.order - a.order;
       });
-      return {
-        candidates: hits.map((g) => g.memAddr).filter(Boolean),
-        pointKey: `${Math.round(x)}:${Math.round(y)}`
-      };
+      return { candidates: hits.map(g => g.memAddr).filter(Boolean), pointKey: `${Math.round(x)}:${Math.round(y)}` };
     }
 
     function getLayoutVarPx(name, fallback) {
@@ -668,7 +927,7 @@
 
     function escapeHtml(str) {
       const text = str == null ? '' : String(str);
-      return text.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+      return text.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
     }
 
     function cssAttrEscape(str) {
@@ -678,41 +937,49 @@
     treeEl.onclick = (e) => {
       const toggle = e.target.closest('[data-action="toggle"]');
       if (toggle && !toggle.classList.contains('placeholder')) {
-        const mem = toggle.getAttribute('data-mem');
-        if (state.collapsed.has(mem)) state.collapsed.delete(mem);
-        else state.collapsed.add(mem);
+        const key = toggle.getAttribute('data-key');
+        if (state.collapsed.has(key)) state.collapsed.delete(key);
+        else state.collapsed.add(key);
         renderTree();
         return;
       }
       const row = e.target.closest('[data-action="select"]');
-      if (row) {
-        const mem = row.getAttribute('data-mem');
-        selectByMem(mem, false);
-      }
+      if (row) selectNode(state.treeMode, row.getAttribute('data-key'), false);
     };
 
     overlay.onclick = (e) => {
-      if (!state.snapshot) return;
+      if (!state.snapshot || state.treeMode !== 'view') return;
       const hit = hitTestCandidates(e.clientX, e.clientY);
       const candidates = hit.candidates || [];
       if (!candidates.length) return;
-
       let idx = 0;
-      if (
-        state.hitCycle &&
-        state.hitCycle.pointKey === hit.pointKey &&
-        arraysEqual(state.hitCycle.candidates, candidates)
-      ) {
+      if (state.hitCycle && state.hitCycle.pointKey === hit.pointKey && arraysEqual(state.hitCycle.candidates, candidates)) {
         idx = (state.hitCycle.index + 1) % candidates.length;
       }
       state.hitCycle = { pointKey: hit.pointKey, candidates, index: idx };
-      selectByMem(candidates[idx], true);
+      selectNode('view', candidates[idx], true);
     };
 
     window.addEventListener('resize', () => {
       fitImageToViewport();
       redraw();
     });
+
+    treeModeSelect.onchange = () => {
+      state.treeMode = treeModeSelect.value;
+      if (state.selected && state.selected.kind !== state.treeMode) {
+        state.selected = null;
+      }
+      renderTree();
+      renderProps();
+      redraw();
+    };
+
+    frameworkToggle.onchange = () => {
+      state.showFrameworkNodes = frameworkToggle.checked;
+      renderTree();
+      renderProps();
+    };
 
     searchInput.oninput = () => renderTree();
     grabBtn.onclick = async () => {
@@ -765,9 +1032,12 @@
         grabBtn.textContent = original;
       }
     };
+
     document.getElementById('copyBtn').onclick = async () => {
       if (!state.selected) return;
-      await navigator.clipboard.writeText(state.selected.memAddr);
+      const text = state.selected.kind === 'view' ? state.selected.key : state.selected.key;
+      await navigator.clipboard.writeText(text);
+      showToast('已复制 key。', 'success');
     };
 
     exportAgentBtn.onclick = async () => {
@@ -780,9 +1050,7 @@
       exportAgentBtn.textContent = '导出中...';
       try {
         const res = await fetch(`/api/grab/${encodeURIComponent(state.currentGrabId)}/paths`);
-        if (!res.ok) {
-          throw new Error(`export paths failed: HTTP ${res.status}`);
-        }
+        if (!res.ok) throw new Error(`export paths failed: HTTP ${res.status}`);
         const paths = await res.json();
         const text = buildAgentExportText(paths);
         await navigator.clipboard.writeText(text);
@@ -803,6 +1071,10 @@
         `snapshot_path: ${paths && paths.snapshotPath ? paths.snapshotPath : ''}`,
         `index_path: ${paths && paths.indexPath ? paths.indexPath : ''}`,
         `compose_index_path: ${paths && paths.composeIndexPath ? paths.composeIndexPath : ''}`,
+        `component_index_path: ${paths && paths.componentIndexPath ? paths.componentIndexPath : ''}`,
+        `render_index_path: ${paths && paths.renderIndexPath ? paths.renderIndexPath : ''}`,
+        `semantics_index_path: ${paths && paths.semanticsIndexPath ? paths.semanticsIndexPath : ''}`,
+        `link_index_path: ${paths && paths.linkIndexPath ? paths.linkIndexPath : ''}`,
         `grab_dir: ${paths && paths.grabDir ? paths.grabDir : ''}`
       ];
       return lines.join('\n');
@@ -810,9 +1082,7 @@
 
     function arraysEqual(a, b) {
       if (!a || !b || a.length !== b.length) return false;
-      for (let i = 0; i < a.length; i += 1) {
-        if (a[i] !== b[i]) return false;
-      }
+      for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return false;
       return true;
     }
 
@@ -825,15 +1095,9 @@
     function showToast(message, type = '') {
       toastEl.textContent = message || '';
       toastEl.className = `toast ${type}`.trim();
-      requestAnimationFrame(() => {
-        toastEl.classList.add('show');
-      });
-      if (toastTimer) {
-        clearTimeout(toastTimer);
-      }
-      toastTimer = setTimeout(() => {
-        toastEl.classList.remove('show');
-      }, 1800);
+      requestAnimationFrame(() => toastEl.classList.add('show'));
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1800);
     }
 
     leftSplitterEl.addEventListener('mousedown', (e) => {

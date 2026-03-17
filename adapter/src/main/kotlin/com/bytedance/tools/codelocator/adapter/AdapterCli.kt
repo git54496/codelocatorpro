@@ -51,11 +51,11 @@ object AdapterCli {
                 0
             }
             "live" -> {
-                val result = service.grabLive(command.deviceSerial)
+                val result = service.grabLive(command.deviceSerial, command.sourceRoot)
                 printGrabResult(result, command.autoOpenViewer, service)
             }
             "file" -> {
-                val result = service.grabFromFile(command.path)
+                val result = service.grabFromFile(command.path, command.sourceRoot)
                 printGrabResult(result, command.autoOpenViewer, service)
             }
             else -> 1
@@ -140,6 +140,30 @@ object AdapterCli {
                 if (result.success) 0 else 1
             }
 
+            "compose-component" -> {
+                val grabId = requireOpt(args, "--grab-id")
+                val componentId = requireOpt(args, "--component-id")
+                val result = service.getComposeComponent(grabId, componentId)
+                println(Jsons.toJson(result))
+                if (result.success) 0 else 1
+            }
+
+            "compose-render" -> {
+                val grabId = requireOpt(args, "--grab-id")
+                val renderId = requireOpt(args, "--render-id")
+                val result = service.getComposeRender(grabId, renderId)
+                println(Jsons.toJson(result))
+                if (result.success) 0 else 1
+            }
+
+            "compose-link" -> {
+                val grabId = requireOpt(args, "--grab-id")
+                val nodeKey = requireOpt(args, "--node-key")
+                val result = service.getComposeLink(grabId, nodeKey)
+                println(Jsons.toJson(result))
+                if (result.success) 0 else 1
+            }
+
             else -> {
                 printUsage()
                 1
@@ -192,8 +216,8 @@ object AdapterCli {
               grab --version
               grab --help
               grab help
-              grab live --device-serial <optional> [--viewer|-v]
-              grab file --path <optional> [--viewer|-v]
+              grab live --device-serial <optional> [--source-root <repo_root>] [--viewer|-v]
+              grab file --path <optional> [--source-root <repo_root>] [--viewer|-v]
               grab list
               grab viewer open --grab-id <id>
               grab viewer serve --port <port>
@@ -201,6 +225,9 @@ object AdapterCli {
               grab inspect class-info --grab-id <id> --mem-addr <addr>
               grab inspect touch --grab-id <id>
               grab inspect compose-node --grab-id <id> --node-id <compose_node_id_or_compose_key>
+              grab inspect compose-component --grab-id <id> --component-id <component_id_or_component_key>
+              grab inspect compose-render --grab-id <id> --render-id <render_id_or_render_key>
+              grab inspect compose-link --grab-id <id> --node-key <link_key>
               grab mcp
 
             legacy compatibility:
@@ -222,11 +249,13 @@ object AdapterCli {
             "live" -> ParsedGrabCommand(
                 mode = "live",
                 deviceSerial = readOption(args, "--device-serial"),
+                sourceRoot = readOption(args, "--source-root"),
                 autoOpenViewer = args.any(::isViewerFlag)
             )
             "file" -> ParsedGrabCommand(
                 mode = "file",
                 path = readOption(args, "--path"),
+                sourceRoot = readOption(args, "--source-root"),
                 autoOpenViewer = args.any(::isViewerFlag)
             )
             else -> null
@@ -241,6 +270,7 @@ object AdapterCli {
         val mode: String,
         val deviceSerial: String? = null,
         val path: String? = null,
+        val sourceRoot: String? = null,
         val autoOpenViewer: Boolean = false
     )
 }

@@ -227,6 +227,10 @@ class ViewerHttpServer(
                     val snapshotPath = grabDir.resolve("snapshot.json")
                     val indexPath = grabDir.resolve("index.json")
                     val composeIndexPath = grabDir.resolve("compose_index.json")
+                    val componentIndexPath = grabDir.resolve("component_index.json")
+                    val renderIndexPath = grabDir.resolve("render_index.json")
+                    val semanticsIndexPath = grabDir.resolve("semantics_index.json")
+                    val linkIndexPath = grabDir.resolve("link_index.json")
                     respondJson(
                         exchange,
                         200,
@@ -237,7 +241,11 @@ class ViewerHttpServer(
                                 "screenshotPath" to if (Files.exists(screenshotPath)) screenshotPath.toString() else null,
                                 "snapshotPath" to if (Files.exists(snapshotPath)) snapshotPath.toString() else null,
                                 "indexPath" to if (Files.exists(indexPath)) indexPath.toString() else null,
-                                "composeIndexPath" to if (Files.exists(composeIndexPath)) composeIndexPath.toString() else null
+                                "composeIndexPath" to if (Files.exists(composeIndexPath)) composeIndexPath.toString() else null,
+                                "componentIndexPath" to if (Files.exists(componentIndexPath)) componentIndexPath.toString() else null,
+                                "renderIndexPath" to if (Files.exists(renderIndexPath)) renderIndexPath.toString() else null,
+                                "semanticsIndexPath" to if (Files.exists(semanticsIndexPath)) semanticsIndexPath.toString() else null,
+                                "linkIndexPath" to if (Files.exists(linkIndexPath)) linkIndexPath.toString() else null
                             )
                         )
                     )
