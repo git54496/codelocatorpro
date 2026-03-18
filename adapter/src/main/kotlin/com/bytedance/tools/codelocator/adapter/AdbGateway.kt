@@ -8,7 +8,10 @@ import java.util.Base64
 import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPInputStream
 
-class AdbGateway(private val store: GrabStore) {
+class AdbGateway(
+    private val store: GrabStore,
+    private val commandRunner: (List<String>, Long) -> String = ::execProcess
+) {
 
     data class DeviceChoice(
         val serial: String,
@@ -17,13 +20,25 @@ class AdbGateway(private val store: GrabStore) {
 
     fun grabUiState(deviceSerialArg: String?, sourceRoot: String? = null): ToolResult<GrabMeta> {
         val choice = chooseDevice(deviceSerialArg)
+        val targetPackage = resolveForegroundPackage(choice.serial)
         val args = linkedMapOf(
-            Constants.KEY_SAVE_TO_FILE to "true",
             Constants.KEY_NEED_COLOR to "false"
         )
-        val decoded = sendBroadcast(choice.serial, Constants.ACTION_DEBUG_LAYOUT_INFO, args)
+        val decoded = sendBroadcast(choice.serial, Constants.ACTION_DEBUG_LAYOUT_INFO, args, targetPackage)
         val appJson = extractBaseData(decoded.json)
             ?: throw AdapterException("DECODE_ERROR", "Missing application data in broadcast response")
+        val responsePackage = SnapshotMapper.detectPackage(appJson)
+        if (!targetPackage.isNullOrBlank() && !responsePackage.isNullOrBlank() && targetPackage != responsePackage) {
+            throw AdapterException(
+                "TARGET_MISMATCH",
+                "Foreground package does not match broadcast responder",
+                mapOf(
+                    "device_serial" to choice.serial,
+                    "expected_package" to targetPackage,
+                    "actual_package" to responsePackage
+                )
+            )
+        }
         val screenshot = tryGrabScreenshot(choice.serial)
 
         val saved = store.importLive(appJson, screenshot, choice.serial, choice.notice, sourceRoot)
@@ -50,7 +65,8 @@ class AdbGateway(private val store: GrabStore) {
         val decoded = sendBroadcast(
             serial,
             Constants.ACTION_CHANGE_VIEW_INFO,
-            linkedMapOf(Constants.KEY_CHANGE_VIEW to changeViewJson)
+            linkedMapOf(Constants.KEY_CHANGE_VIEW to changeViewJson),
+            snapshot.meta.packageName
         )
         val responseObj = Jsons.parseObject(decoded.json)
         val resultMap = extractOperateResultMap(responseObj)
@@ -96,7 +112,8 @@ class AdbGateway(private val store: GrabStore) {
         val decoded = sendBroadcast(
             serial,
             Constants.ACTION_CHANGE_VIEW_INFO,
-            linkedMapOf(Constants.KEY_CHANGE_VIEW to changeViewJson)
+            linkedMapOf(Constants.KEY_CHANGE_VIEW to changeViewJson),
+            snapshot.meta.packageName
         )
         val responseObj = Jsons.parseObject(decoded.json)
         val resultMap = extractOperateResultMap(responseObj)
@@ -131,7 +148,8 @@ class AdbGateway(private val store: GrabStore) {
         val decoded = sendBroadcast(
             serial,
             Constants.ACTION_GET_TOUCH_VIEW,
-            linkedMapOf(Constants.KEY_SAVE_TO_FILE to "true")
+            emptyMap(),
+            snapshot.meta.packageName
         )
         val obj = Jsons.parseObject(decoded.json)
         val data = obj.get("data")
@@ -178,16 +196,43 @@ class AdbGateway(private val store: GrabStore) {
         return DeviceChoice(devices.first(), null)
     }
 
-    fun sendBroadcast(deviceSerial: String, action: String, args: Map<String, String>): BroadcastDecodedResult {
+    fun sendBroadcast(
+        deviceSerial: String,
+        action: String,
+        args: Map<String, String>,
+        targetPackage: String? = null
+    ): BroadcastDecodedResult {
         val argsJson = Jsons.toJson(args)
         val encodedArgs = Base64.getUrlEncoder().withoutPadding().encodeToString(argsJson.toByteArray())
+        val receiverModeArg = if (targetPackage.isNullOrBlank()) "" else " --receiver-registered-only"
+        val packageArg = if (targetPackage.isNullOrBlank()) "" else " ${shellEscape(targetPackage)}"
         val cmd =
-            "${adbPath()} -s ${shellEscape(deviceSerial)} shell am broadcast -a ${shellEscape(action)} --es ${Constants.KEY_SHELL_ARGS} '${shellEscapeSingleQuote(encodedArgs)}'"
+            "${adbPath()} -s ${shellEscape(deviceSerial)} shell am broadcast${receiverModeArg} -a ${shellEscape(action)} --es ${Constants.KEY_SHELL_ARGS} '${shellEscapeSingleQuote(encodedArgs)}'${packageArg}"
         val output = exec(listOf("/bin/sh", "-lc", cmd), 30_000)
 
         val encodedPayload = extractEncodedPayload(output, deviceSerial)
         val decodedJson = decodePayload(encodedPayload)
         return BroadcastDecodedResult(encodedPayload, decodedJson, output)
+    }
+
+    private fun resolveForegroundPackage(deviceSerial: String): String? {
+        val output = exec(listOf(adbPath(), "-s", deviceSerial, "shell", "dumpsys", "window"), 15_000)
+        return parseForegroundPackage(output)
+    }
+
+    internal fun parseForegroundPackage(output: String): String? {
+        val currentFocus = Regex("""mCurrentFocus=Window\{[^\n]*?\su\d+\s([^/\s]+)/""")
+            .find(output)
+            ?.groupValues
+            ?.getOrNull(1)
+        if (!currentFocus.isNullOrBlank()) {
+            return currentFocus
+        }
+        val focusedApp = Regex("""mFocusedApp=ActivityRecord\{[^\n]*?\su\d+\s([^/\s]+)/""")
+            .find(output)
+            ?.groupValues
+            ?.getOrNull(1)
+        return focusedApp?.takeIf { it.isNotBlank() }
     }
 
     private fun extractEncodedPayload(output: String, deviceSerial: String): String {
@@ -292,17 +337,7 @@ class AdbGateway(private val store: GrabStore) {
     }
 
     private fun exec(command: List<String>, timeoutMs: Long): String {
-        val process = ProcessBuilder(command).redirectErrorStream(true).start()
-        val ok = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
-        if (!ok) {
-            process.destroyForcibly()
-            throw AdapterException("TIMEOUT", "Command timeout: ${command.joinToString(" ")}")
-        }
-        val out = process.inputStream.bufferedReader().readText()
-        if (process.exitValue() != 0) {
-            throw AdapterException("DECODE_ERROR", "Command failed: ${command.joinToString(" ")}", mapOf("output" to out))
-        }
-        return out
+        return commandRunner(command, timeoutMs)
     }
 
     private fun shellEscape(raw: String): String {
@@ -311,5 +346,21 @@ class AdbGateway(private val store: GrabStore) {
 
     private fun shellEscapeSingleQuote(raw: String): String {
         return raw.replace("'", "'\\''")
+    }
+
+    companion object {
+        private fun execProcess(command: List<String>, timeoutMs: Long): String {
+            val process = ProcessBuilder(command).redirectErrorStream(true).start()
+            val ok = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
+            if (!ok) {
+                process.destroyForcibly()
+                throw AdapterException("TIMEOUT", "Command timeout: ${command.joinToString(" ")}")
+            }
+            val out = process.inputStream.bufferedReader().readText()
+            if (process.exitValue() != 0) {
+                throw AdapterException("DECODE_ERROR", "Command failed: ${command.joinToString(" ")}", mapOf("output" to out))
+            }
+            return out
+        }
     }
 }
