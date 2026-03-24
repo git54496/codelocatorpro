@@ -1,14 +1,14 @@
 ---
-name: codelocator-grab-reader
-description: 读取和分析 CodeLocator grab 产物（包括 screenshot、snapshot、view index、compose 相关 index，以及 activity 栈和 fragment 信息）。当用户提供 CodeLocator Grab Context、本地绝对路径、grab_id，或要求基于 grab 做 UI 结构分析、视图或 Compose 节点定位、属性解释、activity/fragment 上下文分析、问题定位时使用。
+name: android-ui-grab-reader
+description: 读取和分析 Android UI Grab 的 grab 产物（包括 screenshot、snapshot、view index、compose 相关 index，以及 activity 栈和 fragment 信息）。当用户提供当前实现产出的 `CodeLocator Grab Context`、本地绝对路径、grab_id，或要求基于 grab 做 UI 结构分析、视图或 Compose 节点定位、属性解释、activity/fragment 上下文分析、问题定位时使用。
 ---
 
-# Codelocator Grab Reader
+# Android UI Grab Reader
 
 ## Overview
 
 - 使用本地 grab 结果还原页面结构，并给出可追溯的分析结论。
-- 统一消费 `CodeLocator Grab Context`，避免手工猜路径。
+- 统一消费当前实现产出的 `CodeLocator Grab Context`，避免手工猜路径。
 - 同时支持传统 View 树与 Compose 相关索引，不要只按 View-only 心智分析。
 - 同时支持 activity 栈和 fragment 摘要，但要明确区分“当前页面正在展示”的信息与“被盖住”的信息。
 
@@ -74,14 +74,16 @@ grab_dir: ...
 1. 用户显式给出的 `snapshot_path` / `index_path` / `screenshot_path` / `compose_index_path` / `component_index_path` / `render_index_path` / `semantics_index_path` / `link_index_path`
 2. 用户给出的 `grab_dir` 下的默认文件
 3. 仅有 `grab_id` 时，使用：
-   - `~/.codeLocator_mcp/grabs/<grab_id>/snapshot.json`
-   - `~/.codeLocator_mcp/grabs/<grab_id>/index.json`
-   - `~/.codeLocator_mcp/grabs/<grab_id>/compose_index.json`
-   - `~/.codeLocator_mcp/grabs/<grab_id>/component_index.json`
-   - `~/.codeLocator_mcp/grabs/<grab_id>/render_index.json`
-   - `~/.codeLocator_mcp/grabs/<grab_id>/semantics_index.json`
-   - `~/.codeLocator_mcp/grabs/<grab_id>/link_index.json`
-   - `~/.codeLocator_mcp/grabs/<grab_id>/screenshot.png`
+   - `~/.android-ui-grab/grabs/<grab_id>/snapshot.json`
+   - `~/.android-ui-grab/grabs/<grab_id>/index.json`
+   - `~/.android-ui-grab/grabs/<grab_id>/compose_index.json`
+   - `~/.android-ui-grab/grabs/<grab_id>/component_index.json`
+   - `~/.android-ui-grab/grabs/<grab_id>/render_index.json`
+   - `~/.android-ui-grab/grabs/<grab_id>/semantics_index.json`
+   - `~/.android-ui-grab/grabs/<grab_id>/link_index.json`
+   - `~/.android-ui-grab/grabs/<grab_id>/screenshot.png`
+
+如新路径不存在，再回退兼容旧路径 `~/.codeLocator_mcp/grabs/<grab_id>/...`。
 
 ## Minimal Parsing Rules
 

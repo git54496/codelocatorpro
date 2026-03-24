@@ -51,26 +51,35 @@ class GrabStore {
     }
 
     fun listGrabs(): List<GrabMeta> {
-        val root = Constants.grabsRoot.toFile()
-        if (!root.exists()) return emptyList()
-        return root.listFiles()?.filter { it.isDirectory }?.mapNotNull { dir ->
-            val metaFile = File(dir, "meta.json")
-            if (!metaFile.exists()) return@mapNotNull null
-            runCatching { Jsons.gson.fromJson(metaFile.readText(), GrabMeta::class.java) }.getOrNull()
-        }?.sortedByDescending { it.grabTime } ?: emptyList()
+        val merged = linkedMapOf<String, GrabMeta>()
+        Constants.grabRoots.forEach { rootPath ->
+            val root = rootPath.toFile()
+            if (!root.exists()) return@forEach
+            root.listFiles()?.filter { it.isDirectory }?.mapNotNull { dir ->
+                val metaFile = File(dir, "meta.json")
+                if (!metaFile.exists()) return@mapNotNull null
+                runCatching { Jsons.gson.fromJson(metaFile.readText(), GrabMeta::class.java) }.getOrNull()
+            }?.forEach { meta ->
+                merged.putIfAbsent(meta.grabId, meta)
+            }
+        }
+        return merged.values.sortedByDescending { it.grabTime }
     }
 
     fun latestGrabId(): String? = listGrabs().firstOrNull()?.grabId
 
     fun latestHistoryFile(): File? {
-        val history = Constants.historyDir.toFile()
-        if (!history.exists()) return null
-        return history.listFiles { f -> f.isFile && f.name.endsWith(".codeLocator") }
-            ?.maxByOrNull { it.lastModified() }
+        return Constants.historySearchDirs.asSequence()
+            .map { it.toFile() }
+            .filter { it.exists() }
+            .flatMap { dir ->
+                (dir.listFiles { f -> f.isFile && f.name.endsWith(".codeLocator") } ?: emptyArray()).asSequence()
+            }
+            .maxByOrNull { it.lastModified() }
     }
 
     fun loadSnapshot(grabId: String): GrabSnapshot {
-        val dir = Constants.grabsRoot.resolve(grabId).toFile()
+        val dir = grabDir(grabId)
         val file = File(dir, "snapshot.json")
         if (!file.exists()) {
             throw AdapterException("INVALID_ARGUMENT", "grab_id not found: $grabId")
@@ -98,13 +107,13 @@ class GrabStore {
     }
 
     fun loadScreenshot(grabId: String): ByteArray? {
-        val file = Constants.grabsRoot.resolve(grabId).resolve("screenshot.png").toFile()
+        val file = File(grabDir(grabId), "screenshot.png")
         if (!file.exists()) return null
         return file.readBytes()
     }
 
     fun getIndex(grabId: String): Map<String, ViewIndexItem> {
-        val file = Constants.grabsRoot.resolve(grabId).resolve("index.json").toFile()
+        val file = File(grabDir(grabId), "index.json")
         if (!file.exists()) return emptyMap()
         val root = Jsons.readJsonObject(file)
         val out = linkedMapOf<String, ViewIndexItem>()
@@ -117,7 +126,7 @@ class GrabStore {
     }
 
     fun getComposeIndex(grabId: String): Map<String, ComposeIndexItem> {
-        val file = Constants.grabsRoot.resolve(grabId).resolve("compose_index.json").toFile()
+        val file = File(grabDir(grabId), "compose_index.json")
         if (!file.exists()) {
             val snapshot = loadSnapshot(grabId)
             if (snapshot.composeIndexes.isNotEmpty()) return snapshot.composeIndexes
@@ -137,7 +146,7 @@ class GrabStore {
     }
 
     fun getComponentIndex(grabId: String): Map<String, ComposeComponentIndexItem> {
-        val file = Constants.grabsRoot.resolve(grabId).resolve("component_index.json").toFile()
+        val file = File(grabDir(grabId), "component_index.json")
         if (!file.exists()) {
             val snapshot = loadSnapshot(grabId)
             if (snapshot.componentIndexes.isNotEmpty()) return snapshot.componentIndexes
@@ -157,7 +166,7 @@ class GrabStore {
     }
 
     fun getRenderIndex(grabId: String): Map<String, ComposeRenderIndexItem> {
-        val file = Constants.grabsRoot.resolve(grabId).resolve("render_index.json").toFile()
+        val file = File(grabDir(grabId), "render_index.json")
         if (!file.exists()) {
             val snapshot = loadSnapshot(grabId)
             if (snapshot.renderIndexes.isNotEmpty()) return snapshot.renderIndexes
@@ -177,7 +186,7 @@ class GrabStore {
     }
 
     fun getSemanticsIndex(grabId: String): Map<String, ComposeSemanticsIndexItem> {
-        val file = Constants.grabsRoot.resolve(grabId).resolve("semantics_index.json").toFile()
+        val file = File(grabDir(grabId), "semantics_index.json")
         if (!file.exists()) {
             val snapshot = loadSnapshot(grabId)
             if (snapshot.semanticsIndexes.isNotEmpty()) return snapshot.semanticsIndexes
@@ -197,7 +206,7 @@ class GrabStore {
     }
 
     fun getLinkIndex(grabId: String): Map<String, ComposeLinkIndexItem> {
-        val file = Constants.grabsRoot.resolve(grabId).resolve("link_index.json").toFile()
+        val file = File(grabDir(grabId), "link_index.json")
         if (!file.exists()) {
             val snapshot = loadSnapshot(grabId)
             if (snapshot.linkIndexes.isNotEmpty()) return snapshot.linkIndexes
@@ -454,5 +463,13 @@ class GrabStore {
         Files.writeString(Constants.stateFile, Jsons.toJson(obj))
     }
 
-    fun grabPath(grabId: String): Path = Constants.grabsRoot.resolve(grabId)
+    fun grabPath(grabId: String): Path = grabDirOrNull(grabId)?.toPath() ?: Constants.grabsRoot.resolve(grabId)
+
+    private fun grabDir(grabId: String): File = grabDirOrNull(grabId) ?: Constants.grabsRoot.resolve(grabId).toFile()
+
+    private fun grabDirOrNull(grabId: String): File? {
+        return Constants.grabRoots.asSequence()
+            .map { it.resolve(grabId).toFile() }
+            .firstOrNull { it.isDirectory }
+    }
 }

@@ -1,4 +1,0 @@
-interface:
-  display_name: "CodeLocator View Auto Diagnose"
-  short_description: "Auto grab and infer target view"
-  default_prompt: "当用户描述某个 view 异常但未给定位字段时，先自动 grab 再推断候选 view；若不确定则追问，确定目标后按 codelocator-grab-reader 规则排查。"

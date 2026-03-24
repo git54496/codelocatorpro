@@ -11,6 +11,6 @@ This repository includes and/or is derived from third-party open-source software
 ## 2. Lancet (referenced by upstream project)
 - Project: https://github.com/eleme/lancet
 - License: Apache License 2.0
-- Usage context: Android Lancet-related modules are maintained in sibling repository `codelocator-pro-android` (not in this repository tree).
+- Usage context: Android Lancet-related modules are maintained in sibling repository `android-ui-grab-sdk` (not in this repository tree).
 
 If more third-party components are added in the future, please append them in this file.

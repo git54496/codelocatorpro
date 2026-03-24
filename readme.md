@@ -1,6 +1,6 @@
-# CodeLocatorPRO Workspace
+# Android UI Grab
 
-CodeLocatorPRO 当前仓库以 `adapter` 为核心，用于 Android UI 抓取、定位与可视化分析；Android SDK 已拆分到独立仓库 `codelocator-pro-android`。
+`android-ui-grab` 当前仓库以 `adapter` 为核心，用于 Android UI 抓取、定位与可视化分析；Android SDK 已拆分到独立仓库 `android-ui-grab-sdk`。
 
 ## Open Source Notice / 开源声明
 
@@ -35,17 +35,17 @@ CodeLocatorPRO 当前仓库以 `adapter` 为核心，用于 Android UI 抓取、
 - macOS + Homebrew。
 - 已安装并可用 `adb`（建议 `brew install --cask android-platform-tools`）。
 - 手机已开启开发者模式和 USB 调试，且 `adb devices` 可见。
-- 待抓取 App 已集成/接入 CodeLocator 能力。
+- 待抓取 App 已集成/接入 `android-ui-grab-sdk` 能力。
 - 安装机可访问 `github.com` 和 `repo.maven.apache.org`（首次安装会拉取依赖并本地编译）。
 
 ### 安装步骤
 
 ```bash
-brew tap git54496/codelocatorpro
-brew install grab
+brew tap git54496/android-ui-grab
+brew install android-ui-grab
 ```
 
-对应 tap 仓库：`https://github.com/git54496/homebrew-codelocatorpro`
+对应 tap 仓库：`https://github.com/git54496/homebrew-android-ui-grab`
 
 安装后直接抓屏：
 
@@ -54,6 +54,21 @@ grab
 ```
 
 `grab` 无参数时默认等价于 `grab live`。
+Homebrew Formula 名称已改为 `android-ui-grab`，但安装后的 CLI 命令仍然是 `grab`。
+
+默认抓取结果会写到：
+
+```text
+~/.android-ui-grab/grabs/<grab_id>/
+```
+
+`grab file` 在未指定 `--path` 时，会优先读取：
+
+```text
+~/.android-ui-grab/historyFile
+```
+
+同时兼容回退读取旧路径 `~/.codeLocator_main/historyFile`。
 
 如果你希望抓取成功后自动打开 Viewer，可以直接执行：
 
@@ -67,7 +82,7 @@ grab -v
   - CLI + MCP(stdio) + 本地 Viewer HTTP 服务（内置前端页面资源）。
 - `build.sh`
   - 一键构建 adapter 并启动本地 Viewer。
-- `../codelocator-pro-android`（独立仓库）
+- `../android-ui-grab-sdk`（独立仓库）
   - Android 侧抓取、分析、协议模型与动作执行核心逻辑。
 
 ## 手动构建 Adapter
@@ -83,16 +98,16 @@ cd adapter
 adapter/build/install/grab/bin/grab
 ```
 
-## 本地联调 `codelocator-pro-android`
+## 本地联调 `android-ui-grab-sdk`
 
-如果你在同级目录维护 `../TestApplication` 和 `../codelocator-pro-android`，推荐用下面这条链路做本地验证：
+如果你在同级目录维护 `../TestApplication` 和 `../android-ui-grab-sdk`，推荐用下面这条链路做本地验证：
 
 ```bash
 cd ../TestApplication
 bash scripts/publish-local-codelocator.sh
 ./gradlew :app:installDebug -PuseLocalCodeLocatorMaven=true
 
-cd ../codelocatorpro
+cd ../android-ui-grab
 bash dev-grab.sh -v
 ```
 
@@ -134,7 +149,7 @@ $BIN inspect compose-node --grab-id <grab_id> --node-id <compose_node_id_or_comp
 
 ## Compose 兼容说明
 
-- `codelocatorpro` 已支持解析 `mComposeNodes`（`b5`）并生成 `compose_index.json`。
+- `android-ui-grab` 已支持解析 `mComposeNodes`（`b5`）并生成 `compose_index.json`。
 - Viewer 支持显示 Compose Semantics 表格，并支持 `nodeId/testTag/contentDescription` 搜索。
 - MCP/CLI 新增 `get_compose_node` 能力，便于按 `node_id` 或 `compose_key` 精确检索。
 
@@ -162,14 +177,14 @@ $BIN inspect compose-node --grab-id <grab_id> --node-id <compose_node_id_or_comp
 
 配方已拆分到独立仓库：
 
-- `https://github.com/git54496/homebrew-codelocatorpro`
-- `Formula/grab.rb`
+- `https://github.com/git54496/homebrew-android-ui-grab`
+- `Formula/android-ui-grab.rb`
 
 当前仓库已引入统一版本文件 `VERSION`，`grab --version` 与 adapter 构建版本会保持一致。正式发布 Homebrew 升级链路时，按以下流程操作：
 
-1. 更新 `VERSION`，推送 `codelocatorpro`，并创建对应 tag，例如 `v0.2.4`。
-2. 进入 tap 仓库 `homebrew-codelocatorpro`，执行 `./scripts/update_grab_formula.sh 0.2.4`。
-3. 提交并推送 tap 仓库中的 `Formula/grab.rb`。
-4. 用户执行 `brew update && brew upgrade grab`。
+1. 更新 `VERSION`，推送 `android-ui-grab`，并创建对应 tag，例如 `v0.2.5`。
+2. 进入 tap 仓库 `homebrew-android-ui-grab`，执行 `./scripts/update_grab_formula.sh 0.2.5`。
+3. 提交并推送 tap 仓库中的 `Formula/android-ui-grab.rb`。
+4. 用户执行 `brew update && brew upgrade android-ui-grab`。
 
-说明：历史上安装过 `version "main"` 配方的机器，在切到首个版本化配方时，可能需要一次性执行 `brew reinstall grab`；之后即可正常走 `brew upgrade grab`。
+说明：历史上安装过旧 Formula `grab` 的机器，迁移到新包名时需要一次性执行 `brew uninstall grab && brew install android-ui-grab`；之后即可正常走 `brew upgrade android-ui-grab`。

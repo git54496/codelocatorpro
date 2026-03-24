@@ -1,0 +1,4 @@
+interface:
+  display_name: "Android UI Grab Reader"
+  short_description: "Read and analyze Android UI Grab files"
+  default_prompt: "读取并分析 Android UI Grab 的抓取结果；若输入里出现当前实现产出的 CodeLocator Grab Context，也按同一协议解析并输出结构化结论与证据。"

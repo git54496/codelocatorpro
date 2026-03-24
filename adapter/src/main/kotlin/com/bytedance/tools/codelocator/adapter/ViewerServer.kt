@@ -188,7 +188,10 @@ class ViewerHttpServer(
                     val result = if (latest == null) {
                         ToolResult<Any>(
                             success = false,
-                            error = McpError("INVALID_ARGUMENT", "No .codeLocator file found in ~/.codeLocator_main/historyFile")
+                            error = McpError(
+                                "INVALID_ARGUMENT",
+                                "No .codeLocator file found in ~/.android-ui-grab/historyFile or legacy ~/.codeLocator_main/historyFile"
+                            )
                         )
                     } else {
                         runCatching { store.importFromCodeLocatorFile(latest.absolutePath) }

@@ -16,7 +16,10 @@ class AdapterService(
             path
         } else {
             val latest = store.latestHistoryFile()
-                ?: throw AdapterException("INVALID_ARGUMENT", "No .codeLocator file found in ~/.codeLocator_main/historyFile")
+                ?: throw AdapterException(
+                    "INVALID_ARGUMENT",
+                    "No .codeLocator file found in ~/.android-ui-grab/historyFile or legacy ~/.codeLocator_main/historyFile"
+                )
             latest.absolutePath
         }
         return store.importFromCodeLocatorFile(target, sourceRoot = sourceRoot ?: System.getenv("CODELOCATOR_SOURCE_ROOT"))

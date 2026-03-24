@@ -38,12 +38,18 @@ object Constants {
     const val TOOL_GET_COMPOSE_LINK = "get_compose_link"
 
     val home: Path = Path.of(System.getProperty("user.home"))
-    val mcpRoot: Path = home.resolve(".codeLocator_mcp")
+    val appRoot: Path = home.resolve(".android-ui-grab")
+    val legacyMcpRoot: Path = home.resolve(".codeLocator_mcp")
+    val mcpRoot: Path = appRoot
     val grabsRoot: Path = mcpRoot.resolve("grabs")
+    val legacyGrabsRoot: Path = legacyMcpRoot.resolve("grabs")
+    val grabRoots: List<Path> = listOf(grabsRoot, legacyGrabsRoot).distinct()
     val viewerRoot: Path = mcpRoot.resolve("viewer")
     val stateFile: Path = mcpRoot.resolve("state.json")
     val viewerStateFile: Path = viewerRoot.resolve("server.json")
-    val historyDir: Path = home.resolve(".codeLocator_main").resolve("historyFile")
+    val historyDir: Path = appRoot.resolve("historyFile")
+    val legacyHistoryDir: Path = home.resolve(".codeLocator_main").resolve("historyFile")
+    val historySearchDirs: List<Path> = listOf(historyDir, legacyHistoryDir).distinct()
 
     val tempDir: File = mcpRoot.resolve("tmp").toFile()
 }
