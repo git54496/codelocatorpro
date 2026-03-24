@@ -182,8 +182,8 @@ $BIN inspect compose-node --grab-id <grab_id> --node-id <compose_node_id_or_comp
 
 当前仓库已引入统一版本文件 `VERSION`，`grab --version` 与 adapter 构建版本会保持一致。正式发布 Homebrew 升级链路时，按以下流程操作：
 
-1. 更新 `VERSION`，推送 `android-ui-grab`，并创建对应 tag，例如 `v0.2.5`。
-2. 进入 tap 仓库 `homebrew-android-ui-grab`，执行 `./scripts/update_grab_formula.sh 0.2.5`。
+1. 更新 `VERSION`，推送 `android-ui-grab`，并创建对应 tag，例如 `v0.2.6`。
+2. 进入 tap 仓库 `homebrew-android-ui-grab`，执行 `./scripts/update_grab_formula.sh 0.2.6`。
 3. 提交并推送 tap 仓库中的 `Formula/android-ui-grab.rb`。
 4. 用户执行 `brew update && brew upgrade android-ui-grab`。
 

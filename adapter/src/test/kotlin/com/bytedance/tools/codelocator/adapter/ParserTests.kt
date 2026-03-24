@@ -181,6 +181,72 @@ class ParserTests {
     }
 
     @Test
+    fun `map snapshot view visibility from serialized char values`() {
+        val appJson = """
+            {
+              "bd":"com.demo.app",
+              "b7":{
+                "af":"7f0a0000",
+                "ag":"MainActivity",
+                "cj":[
+                  {
+                    "af":"7f0a0001",
+                    "ag":"android.widget.FrameLayout",
+                    "d":0,
+                    "f":0,
+                    "e":300,
+                    "g":600,
+                    "ab":"V",
+                    "ae":0.75,
+                    "a":[
+                      {
+                        "af":"7f0a0002",
+                        "ag":"android.widget.TextView",
+                        "ac":"title",
+                        "aq":"hello",
+                        "d":10,
+                        "f":20,
+                        "e":110,
+                        "g":60,
+                        "ab":"G",
+                        "ae":0.25,
+                        "a":[]
+                      },
+                      {
+                        "af":"7f0a0003",
+                        "ag":"android.widget.Button",
+                        "d":20,
+                        "f":80,
+                        "e":160,
+                        "g":140,
+                        "ab":"I",
+                        "ae":0.5,
+                        "a":[]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+        """.trimIndent()
+        val meta = GrabMeta("grab_visibility", "file", null, "com.demo.app", "MainActivity", System.currentTimeMillis(), null)
+
+        val snapshot = SnapshotMapper.map(meta, appJson, "screenshot.png")
+        val root = snapshot.uiTree.single()
+        val gone = root.children.first { it.memAddr == "7f0a0002" }
+        val invisible = root.children.first { it.memAddr == "7f0a0003" }
+
+        assertTrue(root.visible)
+        assertEquals(0.75, root.alpha)
+        assertEquals(100, gone.width)
+        assertEquals(40, gone.height)
+        assertEquals(0.25, gone.alpha)
+        assertEquals(false, gone.visible)
+        assertEquals(0.5, invisible.alpha)
+        assertEquals(false, invisible.visible)
+    }
+
+    @Test
     fun `map snapshot activity stack and fragment visibility`() {
         val appJson = """
             {

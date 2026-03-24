@@ -653,6 +653,15 @@
         return;
       }
       if (state.selected.kind === 'view') {
+        const geom = state.geomByMem[entity.memAddr] || null;
+        const frameLine = geom
+          ? `(${geom.absLeft}, ${geom.absTop}, ${geom.width}, ${geom.height})`
+          : `(${entity.left}, ${entity.top}, ${entity.width}, ${entity.height})`;
+        const localFrameDiffers = geom
+          && (geom.absLeft !== Number(entity.left || 0)
+            || geom.absTop !== Number(entity.top || 0)
+            || geom.width !== Number(entity.width || 0)
+            || geom.height !== Number(entity.height || 0));
         const composeTable = buildComposeTable(entity.composeNodes || []);
         const decodedRows = buildDecodedRawRows(entity.raw);
         const decodedTable = decodedRows.length
@@ -665,7 +674,8 @@
           <div><b>memAddr:</b> ${entity.memAddr}</div>
           <div><b>id:</b> ${entity.idStr || '-'}</div>
           <div><b>text:</b> ${entity.text || '-'}</div>
-          <div><b>frame:</b> (${entity.left}, ${entity.top}, ${entity.width}, ${entity.height})</div>
+          <div><b>frame:</b> ${frameLine}</div>
+          ${localFrameDiffers ? `<div><b>localFrame:</b> (${entity.left}, ${entity.top}, ${entity.width}, ${entity.height})</div>` : ''}
           <div><b>alpha:</b> ${entity.alpha}</div>
           <div><b>visible:</b> ${entity.visible}</div>
           <h4>Compose Semantics</h4>

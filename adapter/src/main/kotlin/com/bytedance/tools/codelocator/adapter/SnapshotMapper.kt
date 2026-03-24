@@ -305,7 +305,7 @@ object SnapshotMapper {
         val height = max(0, bottom - top)
 
         val visibility = getString(viewObj, "ab", "mVisibility")
-        val visible = visibility?.let { it != "8" } ?: true
+        val visible = parseVisibility(visibility)
         val alpha = getDouble(viewObj, "ae", "mAlpha") ?: 1.0
 
         val composeCaptureObj = getObj(viewObj, "b6", "mComposeCapture")
@@ -625,5 +625,15 @@ object SnapshotMapper {
             }
         }
         return null
+    }
+
+    private fun parseVisibility(raw: String?): Boolean {
+        return when (raw?.trim()?.lowercase()) {
+            null, "" -> true
+            "0", "v", "visible" -> true
+            "4", "i", "invisible" -> false
+            "8", "g", "gone" -> false
+            else -> true
+        }
     }
 }
