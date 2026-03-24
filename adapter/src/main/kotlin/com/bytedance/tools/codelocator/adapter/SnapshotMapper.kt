@@ -11,6 +11,7 @@ object SnapshotMapper {
     fun map(meta: GrabMeta, appJsonRaw: String, screenshotRef: String?, sourceRoot: String? = null): GrabSnapshot {
         val app = Jsons.parseObject(appJsonRaw)
         val activity = getObj(app, "b7", "mActivity")
+        val activityStack = parseActivityStack(app)
         val roots = getArray(activity, "cj", "mDecorViews")
             ?: getArray(app, "cj", "mDecorViews")
             ?: JsonArray()
@@ -35,7 +36,8 @@ object SnapshotMapper {
             componentIndexes = componentIndex,
             renderIndexes = renderIndex,
             semanticsIndexes = semanticsIndex,
-            linkIndexes = linkIndex
+            linkIndexes = linkIndex,
+            activityStack = activityStack
         )
     }
 
@@ -49,6 +51,65 @@ object SnapshotMapper {
             val activity = getObj(app, "b7", "mActivity")
             getString(activity, "ag", "mClassName")
         }.getOrNull()
+    }
+
+    private fun parseActivityStack(app: JsonObject): List<ActivityStackItemDto> {
+        val stackArray = getArray(app, "c1", "mActivityStack")
+        val parsed = stackArray?.mapNotNull { item ->
+            if (item.isJsonObject) parseActivity(item.asJsonObject) else null
+        } ?: emptyList()
+        if (parsed.isNotEmpty()) return parsed
+
+        val currentActivity = getObj(app, "b7", "mActivity") ?: return emptyList()
+        val fallback = parseActivity(currentActivity) ?: return emptyList()
+        return listOf(fallback.copy(current = true, covered = false))
+    }
+
+    private fun parseActivity(activityObj: JsonObject): ActivityStackItemDto? {
+        val memAddr = getString(activityObj, "af", "mMemAddr") ?: return null
+        val className = getString(activityObj, "ag", "mClassName") ?: "UnknownActivity"
+        val fragments = getArray(activityObj, "ck", "mFragments")?.mapNotNull { child ->
+            if (child.isJsonObject) parseFragment(child.asJsonObject) else null
+        } ?: emptyList()
+        return ActivityStackItemDto(
+            memAddr = memAddr,
+            className = className,
+            startInfo = getString(activityObj, "cl", "mStartInfo"),
+            current = getBoolean(activityObj, "cm", "mCurrent") ?: false,
+            covered = getBoolean(activityObj, "cn", "mCovered") ?: false,
+            paused = getBoolean(activityObj, "co", "mPaused") ?: false,
+            stopped = getBoolean(activityObj, "cp", "mStopped") ?: false,
+            fragments = fragments
+        )
+    }
+
+    private fun parseFragment(fragmentObj: JsonObject): FragmentNodeDto? {
+        val memAddr = getString(fragmentObj, "af", "mMemAddr") ?: return null
+        val className = getString(fragmentObj, "ag", "mClassName") ?: "UnknownFragment"
+        val coveredByTopActivity = getBoolean(fragmentObj, "ch", "mCoveredByTopActivity") ?: false
+        val visible = getBoolean(fragmentObj, "cd", "mIsVisible") ?: false
+        val added = getBoolean(fragmentObj, "ce", "mIsAdded") ?: false
+        val userVisibleHint = getBoolean(fragmentObj, "cf", "mUserVisibleHint") ?: false
+        val boundViewVisible = getBoolean(fragmentObj, "cg", "mBoundViewVisible") ?: false
+        val effectiveVisible = getBoolean(fragmentObj, "ci", "mEffectiveVisible")
+            ?: (!coveredByTopActivity && visible && added && userVisibleHint && boundViewVisible)
+        val children = getArray(fragmentObj, "a", "mChildren")?.mapNotNull { child ->
+            if (child.isJsonObject) parseFragment(child.asJsonObject) else null
+        } ?: emptyList()
+        return FragmentNodeDto(
+            memAddr = memAddr,
+            className = className,
+            tag = getString(fragmentObj, "cc", "mTag"),
+            fragmentId = getInt(fragmentObj, "ad", "mId"),
+            viewMemAddr = getString(fragmentObj, "cb", "mViewMemAddr"),
+            visible = visible,
+            added = added,
+            userVisibleHint = userVisibleHint,
+            boundViewVisible = boundViewVisible,
+            coveredByTopActivity = coveredByTopActivity,
+            effectiveVisible = effectiveVisible,
+            children = children
+        )
     }
 
     internal fun componentKey(hostMemAddr: String, componentId: String): String = "$hostMemAddr:component:$componentId"

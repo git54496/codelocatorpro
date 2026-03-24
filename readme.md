@@ -138,6 +138,17 @@ $BIN inspect compose-node --grab-id <grab_id> --node-id <compose_node_id_or_comp
 - Viewer 支持显示 Compose Semantics 表格，并支持 `nodeId/testTag/contentDescription` 搜索。
 - MCP/CLI 新增 `get_compose_node` 能力，便于按 `node_id` 或 `compose_key` 精确检索。
 
+## Activity 栈与 Fragment 抓取说明
+
+- `grab` 现在会把 activity 栈摘要和 fragment 树一起写进 `snapshot.json` 的 `activityStack` 字段。
+- Viewer 主截图和主树仍然只展示当前前台 activity 的页面内容，也就是用户当前真正看到的顶层页面。
+- Viewer 右侧默认概览会额外列出 activity 栈和 fragment 摘要：
+  - `current`：当前正在展示的 activity / fragment
+  - `covered`：已经抓到，但当前被顶层 activity 盖住、不会出现在主截图和主树里的信息
+- 因此，做问题分析时要区分两类证据：
+  - 主截图、主树、主 overlay：当前页面正在展示的信息
+  - `activityStack` 中标记为 `covered` 的 activity / fragment：被盖住的上下文信息，只能作为补充线索，不能直接当作当前截图中的可见元素
+
 ## `build.sh` 参数
 
 ```bash
@@ -156,8 +167,8 @@ $BIN inspect compose-node --grab-id <grab_id> --node-id <compose_node_id_or_comp
 
 当前仓库已引入统一版本文件 `VERSION`，`grab --version` 与 adapter 构建版本会保持一致。正式发布 Homebrew 升级链路时，按以下流程操作：
 
-1. 更新 `VERSION`，推送 `codelocatorpro`，并创建对应 tag，例如 `v0.2.3`。
-2. 进入 tap 仓库 `homebrew-codelocatorpro`，执行 `./scripts/update_grab_formula.sh 0.2.3`。
+1. 更新 `VERSION`，推送 `codelocatorpro`，并创建对应 tag，例如 `v0.2.4`。
+2. 进入 tap 仓库 `homebrew-codelocatorpro`，执行 `./scripts/update_grab_formula.sh 0.2.4`。
 3. 提交并推送 tap 仓库中的 `Formula/grab.rb`。
 4. 用户执行 `brew update && brew upgrade grab`。
 

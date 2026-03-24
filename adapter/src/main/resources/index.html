@@ -293,7 +293,9 @@
       treeModeSelect.value = state.treeMode;
       frameworkToggle.checked = state.showFrameworkNodes;
       frameworkToggle.disabled = !state.compose.componentRoots.length;
-      metaEl.textContent = `${state.snapshot.meta.source} | ${state.snapshot.meta.packageName || '-'} | ${state.snapshot.meta.activity || '-'} | components=${Object.keys(state.compose.componentByKey).length} render=${Object.keys(state.compose.renderByKey).length} semantics=${Object.keys(state.compose.semanticsByKey).length}`;
+      const activityStack = state.snapshot.activityStack || [];
+      const fragmentSummary = summarizeFragments(activityStack);
+      metaEl.textContent = `${state.snapshot.meta.source} | ${state.snapshot.meta.packageName || '-'} | ${state.snapshot.meta.activity || '-'} | activities=${activityStack.length} covered=${activityStack.filter(a => a.covered).length} fragments=${fragmentSummary.total} visible=${fragmentSummary.visible} coveredFragments=${fragmentSummary.covered} | components=${Object.keys(state.compose.componentByKey).length} render=${Object.keys(state.compose.renderByKey).length} semantics=${Object.keys(state.compose.semanticsByKey).length}`;
       img.onload = () => {
         fitImageToViewport();
         redraw();
@@ -647,7 +649,7 @@
     function renderProps() {
       const entity = getSelectedEntity();
       if (!entity || !state.selected) {
-        propsEl.innerHTML = '<div class="muted">Select a node</div>';
+        propsEl.innerHTML = buildGrabOverview();
         return;
       }
       if (state.selected.kind === 'view') {
@@ -733,6 +735,102 @@
     function buildSimpleList(items) {
       if (!items || !items.length) return '<div class="muted">None</div>';
       return `<ul>${items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
+    }
+
+    function flattenFragments(nodes, out = []) {
+      (nodes || []).forEach((node) => {
+        out.push(node);
+        flattenFragments(node.children || [], out);
+      });
+      return out;
+    }
+
+    function summarizeFragments(activityStack) {
+      const all = [];
+      (activityStack || []).forEach((activity) => flattenFragments(activity.fragments || [], all));
+      return {
+        total: all.length,
+        visible: all.filter(fragment => fragment.effectiveVisible).length,
+        covered: all.filter(fragment => fragment.coveredByTopActivity).length
+      };
+    }
+
+    function activityStatusLabel(activity) {
+      const tags = [];
+      if (activity.current) tags.push('current');
+      if (activity.covered) tags.push('covered');
+      if (activity.paused) tags.push('paused');
+      if (activity.stopped) tags.push('stopped');
+      return tags.join(', ') || 'active';
+    }
+
+    function fragmentStatusLabel(fragment) {
+      const tags = [];
+      if (fragment.effectiveVisible) tags.push('showing');
+      else if (fragment.coveredByTopActivity) tags.push('covered');
+      else tags.push('hidden');
+      if (fragment.added) tags.push('added');
+      if (fragment.visible) tags.push('visible');
+      if (fragment.userVisibleHint) tags.push('userVisibleHint');
+      if (!fragment.boundViewVisible) tags.push('viewHidden');
+      return tags.join(', ');
+    }
+
+    function buildActivityStackTable(activityStack) {
+      if (!activityStack || !activityStack.length) {
+        return '<div class="muted">No activity stack captured</div>';
+      }
+      return `<table class="props-table">
+        <thead><tr><th>Activity</th><th>memAddr</th><th>Status</th><th>StartInfo</th><th>Fragments</th></tr></thead>
+        <tbody>
+          ${activityStack.map((activity) => {
+            const fragments = flattenFragments(activity.fragments || []);
+            return `<tr>
+              <td class="props-value">${escapeHtml(activity.className || '')}</td>
+              <td class="props-value">${escapeHtml(activity.memAddr || '')}</td>
+              <td class="props-value">${escapeHtml(activityStatusLabel(activity))}</td>
+              <td class="props-value">${escapeHtml(activity.startInfo || '-')}</td>
+              <td class="props-value">${fragments.length}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+    }
+
+    function buildFragmentTable(activityStack) {
+      const rows = [];
+      (activityStack || []).forEach((activity) => {
+        flattenFragments(activity.fragments || []).forEach((fragment) => {
+          rows.push({ activity, fragment });
+        });
+      });
+      if (!rows.length) return '<div class="muted">No fragments captured</div>';
+      return `<table class="props-table">
+        <thead><tr><th>Activity</th><th>Fragment</th><th>tag/id</th><th>viewMemAddr</th><th>Status</th></tr></thead>
+        <tbody>
+          ${rows.map(({ activity, fragment }) => `<tr>
+            <td class="props-value">${escapeHtml(activity.className || '')}</td>
+            <td class="props-value">${escapeHtml(fragment.className || '')}</td>
+            <td class="props-value">${escapeHtml(fragment.tag || '-')}${fragment.fragmentId != null ? ` / ${escapeHtml(fragment.fragmentId)}` : ''}</td>
+            <td class="props-value">${escapeHtml(fragment.viewMemAddr || '-')}</td>
+            <td class="props-value">${escapeHtml(fragmentStatusLabel(fragment))}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`;
+    }
+
+    function buildGrabOverview() {
+      const activityStack = state.snapshot && state.snapshot.activityStack ? state.snapshot.activityStack : [];
+      const currentActivity = activityStack.find((activity) => activity.current) || activityStack[0] || null;
+      const fragmentSummary = summarizeFragments(activityStack);
+      return `<h3>Grab Overview</h3>
+        <div><b>Current page:</b> screenshot and main tree currently show ${escapeHtml((currentActivity && currentActivity.className) || (state.snapshot && state.snapshot.meta && state.snapshot.meta.activity) || '-')}</div>
+        <div><b>Covered info:</b> activity stack and fragment rows marked <code>covered</code> were captured from pages hidden behind the current top activity; they are not rendered in the main screenshot/tree.</div>
+        <div><b>Fragment summary:</b> total=${fragmentSummary.total}, showing=${fragmentSummary.visible}, covered=${fragmentSummary.covered}</div>
+        <h4>Activity Stack</h4>
+        ${buildActivityStackTable(activityStack)}
+        <h4>Fragments</h4>
+        ${buildFragmentTable(activityStack)}`;
     }
 
     function buildComposeTable(composeNodes) {

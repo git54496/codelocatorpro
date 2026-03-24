@@ -14,7 +14,7 @@ class ParserTests {
     @Test
     fun `parse codeLocator file`() {
         val appJson = """
-            {"bd":"com.demo.app","b7":{"ag":"MainActivity","cj":[{"af":"7f0a0001","ag":"android.widget.TextView","ac":"title","aq":"hello","d":10,"f":20,"e":110,"g":60,"a":[]}]}}
+            {"bd":"com.demo.app","b7":{"af":"7f0a0000","ag":"MainActivity","cj":[{"af":"7f0a0001","ag":"android.widget.TextView","ac":"title","aq":"hello","d":10,"f":20,"e":110,"g":60,"a":[]}]}}
         """.trimIndent()
         val img = byteArrayOf(1, 2, 3, 4, 5)
 
@@ -46,7 +46,7 @@ class ParserTests {
     @Test
     fun `map snapshot tree and index`() {
         val appJson = """
-            {"bd":"com.demo.app","b7":{"ag":"MainActivity","cj":[{"af":"7f0a0001","ag":"android.widget.FrameLayout","d":0,"f":0,"e":300,"g":600,"a":[{"af":"7f0a0002","ag":"android.widget.TextView","ac":"title","aq":"hello","d":10,"f":20,"e":110,"g":60,"a":[]}]}]}}
+            {"bd":"com.demo.app","b7":{"af":"7f0a0000","ag":"MainActivity","cj":[{"af":"7f0a0001","ag":"android.widget.FrameLayout","d":0,"f":0,"e":300,"g":600,"a":[{"af":"7f0a0002","ag":"android.widget.TextView","ac":"title","aq":"hello","d":10,"f":20,"e":110,"g":60,"a":[]}]}]}}
         """.trimIndent()
         val meta = GrabMeta("grab_x", "file", null, "com.demo.app", "MainActivity", System.currentTimeMillis(), null)
 
@@ -54,12 +54,14 @@ class ParserTests {
         assertEquals(1, snapshot.uiTree.size)
         assertEquals(2, snapshot.indexes.size)
         assertTrue(snapshot.indexes.containsKey("7f0a0002"))
+        assertEquals(1, snapshot.activityStack.size)
+        assertTrue(snapshot.activityStack.first().current)
     }
 
     @Test
     fun `map snapshot compose tree and compose index`() {
         val appJson = """
-            {"bd":"com.demo.app","b7":{"ag":"MainActivity","cj":[{"af":"7f0a1000","ag":"androidx.compose.ui.platform.ComposeView","d":0,"f":0,"e":300,"g":600,"b5":[{"a":"root_sem","b":10,"c":20,"d":210,"e":320,"f":"Home","g":"home_desc","h":"screen_home","i":1,"j":true,"q":["CLICK","FOCUS"],"r":[{"nodeId":"cta_sem","left":100,"top":200,"right":220,"bottom":260,"text":"Pay Now","contentDescription":"pay now","testTag":"btn_pay","clickable":true,"enabled":true,"actions":["CLICK"]}]}],"a":[]}]}}
+            {"bd":"com.demo.app","b7":{"af":"7f0a0000","ag":"MainActivity","cj":[{"af":"7f0a1000","ag":"androidx.compose.ui.platform.ComposeView","d":0,"f":0,"e":300,"g":600,"b5":[{"a":"root_sem","b":10,"c":20,"d":210,"e":320,"f":"Home","g":"home_desc","h":"screen_home","i":1,"j":true,"q":["CLICK","FOCUS"],"r":[{"nodeId":"cta_sem","left":100,"top":200,"right":220,"bottom":260,"text":"Pay Now","contentDescription":"pay now","testTag":"btn_pay","clickable":true,"enabled":true,"actions":["CLICK"]}]}],"a":[]}]}}
         """.trimIndent()
         val meta = GrabMeta("grab_compose", "file", null, "com.demo.app", "MainActivity", System.currentTimeMillis(), null)
 
@@ -176,5 +178,120 @@ class ParserTests {
         val semantics = snapshot.semanticsIndexes["7f0a2000:semantics:101"]
         assertNotNull(semantics)
         assertEquals("0", semantics.legacyNodeId)
+    }
+
+    @Test
+    fun `map snapshot activity stack and fragment visibility`() {
+        val appJson = """
+            {
+              "bd":"com.demo.app",
+              "b7":{
+                "af":"7f0a0001",
+                "ag":"MainActivity",
+                "cj":[{"af":"7f0a0100","ag":"android.widget.FrameLayout","d":0,"f":0,"e":300,"g":600,"a":[]}],
+                "ck":[
+                  {
+                    "af":"7f0f0001",
+                    "ag":"com.demo.HomeFragment",
+                    "cc":"home",
+                    "ad":101,
+                    "cb":"7f0a0100",
+                    "cd":true,
+                    "ce":true,
+                    "cf":true,
+                    "cg":true,
+                    "ch":false,
+                    "ci":true
+                  }
+                ]
+              },
+              "c1":[
+                {
+                  "af":"7f0a0001",
+                  "ag":"MainActivity",
+                  "cl":"HomeActivity.kt:42",
+                  "cm":true,
+                  "cn":false,
+                  "co":false,
+                  "cp":false,
+                  "ck":[
+                    {
+                      "af":"7f0f0001",
+                      "ag":"com.demo.HomeFragment",
+                      "cc":"home",
+                      "ad":101,
+                      "cb":"7f0a0100",
+                      "cd":true,
+                      "ce":true,
+                      "cf":true,
+                      "cg":true,
+                      "ch":false,
+                      "ci":true,
+                      "a":[
+                        {
+                          "af":"7f0f0002",
+                          "ag":"com.demo.HomeChildFragment",
+                          "cc":"child",
+                          "ad":102,
+                          "cb":"7f0a0101",
+                          "cd":true,
+                          "ce":true,
+                          "cf":true,
+                          "cg":true,
+                          "ch":false,
+                          "ci":true
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "af":"7f0a0002",
+                  "ag":"DetailActivity",
+                  "cl":"MainActivity.kt:88",
+                  "cm":false,
+                  "cn":true,
+                  "co":true,
+                  "cp":true,
+                  "ck":[
+                    {
+                      "af":"7f0f0010",
+                      "ag":"com.demo.DetailFragment",
+                      "cc":"detail",
+                      "ad":201,
+                      "cb":"7f0a0200",
+                      "cd":true,
+                      "ce":true,
+                      "cf":true,
+                      "cg":true,
+                      "ch":true,
+                      "ci":false
+                    }
+                  ]
+                }
+              ]
+            }
+        """.trimIndent()
+        val meta = GrabMeta("grab_stack", "file", null, "com.demo.app", "MainActivity", System.currentTimeMillis(), null)
+
+        val snapshot = SnapshotMapper.map(meta, appJson, "screenshot.png")
+        assertEquals(2, snapshot.activityStack.size)
+
+        val current = snapshot.activityStack[0]
+        assertEquals("MainActivity", current.className)
+        assertTrue(current.current)
+        assertTrue(!current.covered)
+        assertEquals("HomeActivity.kt:42", current.startInfo)
+        assertEquals(1, current.fragments.size)
+        assertTrue(current.fragments.first().effectiveVisible)
+        assertEquals(1, current.fragments.first().children.size)
+
+        val covered = snapshot.activityStack[1]
+        assertEquals("DetailActivity", covered.className)
+        assertTrue(covered.covered)
+        assertTrue(covered.stopped)
+        assertEquals(1, covered.fragments.size)
+        assertTrue(covered.fragments.first().coveredByTopActivity)
+        assertTrue(!covered.fragments.first().effectiveVisible)
     }
 }

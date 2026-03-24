@@ -36,7 +36,34 @@ data class GrabSnapshot(
     val componentIndexes: Map<String, ComposeComponentIndexItem> = emptyMap(),
     val renderIndexes: Map<String, ComposeRenderIndexItem> = emptyMap(),
     val semanticsIndexes: Map<String, ComposeSemanticsIndexItem> = emptyMap(),
-    val linkIndexes: Map<String, ComposeLinkIndexItem> = emptyMap()
+    val linkIndexes: Map<String, ComposeLinkIndexItem> = emptyMap(),
+    val activityStack: List<ActivityStackItemDto> = emptyList()
+)
+
+data class ActivityStackItemDto(
+    val memAddr: String,
+    val className: String,
+    val startInfo: String? = null,
+    val current: Boolean = false,
+    val covered: Boolean = false,
+    val paused: Boolean = false,
+    val stopped: Boolean = false,
+    val fragments: List<FragmentNodeDto> = emptyList()
+)
+
+data class FragmentNodeDto(
+    val memAddr: String,
+    val className: String,
+    val tag: String? = null,
+    val fragmentId: Int? = null,
+    val viewMemAddr: String? = null,
+    val visible: Boolean = false,
+    val added: Boolean = false,
+    val userVisibleHint: Boolean = false,
+    val boundViewVisible: Boolean = false,
+    val coveredByTopActivity: Boolean = false,
+    val effectiveVisible: Boolean = false,
+    val children: List<FragmentNodeDto> = emptyList()
 )
 
 data class ViewIndexItem(
