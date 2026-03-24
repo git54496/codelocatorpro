@@ -25,6 +25,34 @@
     .top .toggle input { margin:0; }
     .layout { display:grid; grid-template-columns: var(--left-pane-width) var(--splitter-width) minmax(320px, 1fr) var(--splitter-width) var(--right-pane-width); gap: 0; padding: 12px; height: calc(100vh - 64px); box-sizing: border-box; }
     .panel { background: var(--panel); border:1px solid var(--line); border-radius:12px; overflow:auto; }
+    .left-panel { display:flex; flex-direction:column; overflow:hidden; }
+    .panel-toolbar {
+      display:flex;
+      gap:8px;
+      align-items:center;
+      padding:10px;
+      border-bottom:1px solid var(--line);
+      background:linear-gradient(180deg, #fbfdff 0%, #f5f9ff 100%);
+    }
+    .panel-toolbar button {
+      border:1px solid #c5d3e7;
+      background:#fff;
+      color:#28415f;
+      border-radius:8px;
+      padding:6px 10px;
+      cursor:pointer;
+      font-size:12px;
+      font-weight:600;
+    }
+    .panel-toolbar button.active {
+      border-color:#1b75d0;
+      background:#0b84f3;
+      color:#fff;
+    }
+    .panel-toolbar button:disabled {
+      cursor:not-allowed;
+      opacity:0.5;
+    }
     .splitter {
       position: relative;
       cursor: col-resize;
@@ -43,7 +71,7 @@
     }
     .splitter:hover::before { background: #9fb3ce; }
     body.is-resizing { cursor: col-resize; user-select: none; }
-    #tree { padding: 10px; font-size: 13px; overflow:auto; }
+    #tree { flex:1; padding: 10px; font-size: 13px; overflow:auto; }
     #tree ul { list-style:none; padding-left:16px; margin:0; width:max-content; min-width:100%; }
     .tree-row { display:flex; align-items:center; gap:6px; padding: 4px 6px; border-radius: 6px; cursor:pointer; white-space: nowrap; width:max-content; min-width:100%; box-sizing:border-box; }
     .tree-row:hover { background:#edf4ff; }
@@ -126,7 +154,13 @@
     <span id="meta" class="muted"></span>
   </div>
   <div class="layout" id="layout">
-    <div class="panel" id="tree"></div>
+    <div class="panel left-panel">
+      <div class="panel-toolbar">
+        <button id="locateBtn" type="button">Locate</button>
+        <button id="overviewBtn" type="button">Overview</button>
+      </div>
+      <div id="tree"></div>
+    </div>
     <div class="splitter" id="leftSplitter" title="Drag to resize"></div>
     <div class="panel" id="canvasWrap">
       <div id="loadingMask">Loading...</div>
@@ -146,6 +180,7 @@
       snapshot: null,
       currentGrabId: null,
       selected: null,
+      overviewActive: true,
       treeMode: 'view',
       showFrameworkNodes: false,
       scale: 1,
@@ -165,6 +200,8 @@
     };
     const treeEl = document.getElementById('tree');
     const propsEl = document.getElementById('props');
+    const locateBtn = document.getElementById('locateBtn');
+    const overviewBtn = document.getElementById('overviewBtn');
     const layoutEl = document.getElementById('layout');
     const leftSplitterEl = document.getElementById('leftSplitter');
     const rightSplitterEl = document.getElementById('rightSplitter');
@@ -285,6 +322,7 @@
       const snapRes = await fetch(`/api/grab/${grabId}/snapshot`);
       state.snapshot = await snapRes.json();
       state.selected = null;
+      state.overviewActive = true;
       state.collapsed = new Set();
       state.hitCycle = null;
       buildGeometryIndex();
@@ -608,6 +646,7 @@
       }
 
       treeEl.innerHTML = `<ul>${roots.map(nodeHtml).join('')}</ul>`;
+      updateLeftPanelActions();
     }
 
     function getSelectedEntity() {
@@ -621,8 +660,37 @@
       return null;
     }
 
+    function updateLeftPanelActions() {
+      locateBtn.disabled = !state.selected;
+      overviewBtn.classList.toggle('active', !!state.overviewActive);
+      overviewBtn.setAttribute('aria-pressed', state.overviewActive ? 'true' : 'false');
+    }
+
+    function scrollSelectedTreeRow() {
+      if (!state.selected) return;
+      requestAnimationFrame(() => {
+        let row = treeEl.querySelector(`.tree-row[data-key="${cssAttrEscape(state.selected.key)}"]`);
+        if (!row && searchInput.value.trim()) {
+          searchInput.value = '';
+          renderTree();
+          row = treeEl.querySelector(`.tree-row[data-key="${cssAttrEscape(state.selected.key)}"]`);
+        }
+        if (row) row.scrollIntoView({ block: 'center', inline: 'nearest' });
+      });
+    }
+
+    function activateOverview() {
+      state.selected = null;
+      state.overviewActive = true;
+      renderTree();
+      renderProps();
+      redraw();
+      updateLeftPanelActions();
+    }
+
     function selectNode(kind, key, scrollIntoView) {
       state.selected = key ? { kind, key } : null;
+      state.overviewActive = !state.selected;
       if (state.selected) {
         const path = findPath(getCurrentRoots(), key) || [];
         path.slice(0, -1).forEach((itemKey) => state.collapsed.delete(itemKey));
@@ -630,11 +698,9 @@
       renderTree();
       renderProps();
       redraw();
+      updateLeftPanelActions();
       if (scrollIntoView && state.selected) {
-        requestAnimationFrame(() => {
-          const row = treeEl.querySelector(`.tree-row[data-key="${cssAttrEscape(key)}"]`);
-          if (row) row.scrollIntoView({ block: 'center', inline: 'nearest' });
-        });
+        scrollSelectedTreeRow();
       }
     }
 
@@ -648,7 +714,7 @@
 
     function renderProps() {
       const entity = getSelectedEntity();
-      if (!entity || !state.selected) {
+      if (state.overviewActive || !entity || !state.selected) {
         propsEl.innerHTML = buildGrabOverview();
         return;
       }
@@ -1095,10 +1161,12 @@
       state.treeMode = treeModeSelect.value;
       if (state.selected && state.selected.kind !== state.treeMode) {
         state.selected = null;
+        state.overviewActive = true;
       }
       renderTree();
       renderProps();
       redraw();
+      updateLeftPanelActions();
     };
 
     frameworkToggle.onchange = () => {
@@ -1108,6 +1176,16 @@
     };
 
     searchInput.oninput = () => renderTree();
+    locateBtn.onclick = () => {
+      if (!state.selected) {
+        showToast('No item selected', 'error');
+        return;
+      }
+      selectNode(state.selected.kind, state.selected.key, true);
+    };
+
+    overviewBtn.onclick = () => activateOverview();
+
     grabBtn.onclick = async () => {
       const original = grabBtn.textContent;
       grabBtn.disabled = true;
@@ -1242,6 +1320,7 @@
     window.addEventListener('mouseup', () => endResize());
     window.addEventListener('blur', () => endResize());
 
+    updateLeftPanelActions();
     boot();
   </script>
 </body>
