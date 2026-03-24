@@ -342,11 +342,18 @@ class ParserTests {
 
         val snapshot = SnapshotMapper.map(meta, appJson, "screenshot.png")
         assertEquals(2, snapshot.activityStack.size)
+        val orderInfo = snapshot.activityStackOrderInfo
+        assertNotNull(orderInfo)
+        assertEquals("current_first_system_record_order", orderInfo.orderingMode)
+        assertTrue(orderInfo.topActivityStable)
+        assertTrue(orderInfo.backgroundActivitiesUnstable)
+        assertTrue(orderInfo.warning.contains("Only the top activity"))
 
         val current = snapshot.activityStack[0]
         assertEquals("MainActivity", current.className)
         assertTrue(current.current)
         assertTrue(!current.covered)
+        assertEquals(true, current.orderStable)
         assertEquals("HomeActivity.kt:42", current.startInfo)
         assertEquals(1, current.fragments.size)
         assertTrue(current.fragments.first().effectiveVisible)
@@ -356,6 +363,7 @@ class ParserTests {
         assertEquals("DetailActivity", covered.className)
         assertTrue(covered.covered)
         assertTrue(covered.stopped)
+        assertEquals(false, covered.orderStable)
         assertEquals(1, covered.fragments.size)
         assertTrue(covered.fragments.first().coveredByTopActivity)
         assertTrue(!covered.fragments.first().effectiveVisible)

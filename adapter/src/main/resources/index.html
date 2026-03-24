@@ -765,6 +765,15 @@
       };
     }
 
+    function getActivityStackOrderInfo() {
+      return (state.snapshot && state.snapshot.activityStackOrderInfo) || {
+        orderingMode: 'current_first_system_record_order',
+        topActivityStable: true,
+        backgroundActivitiesUnstable: true,
+        warning: 'Only the top activity is considered stable. Background activities keep the captured system record order and may be inaccurate.'
+      };
+    }
+
     function activityStatusLabel(activity) {
       const tags = [];
       if (activity.current) tags.push('current');
@@ -772,6 +781,11 @@
       if (activity.paused) tags.push('paused');
       if (activity.stopped) tags.push('stopped');
       return tags.join(', ') || 'active';
+    }
+
+    function activityOrderStabilityLabel(activity, index) {
+      const orderStable = activity.orderStable === true || (activity.orderStable == null && index === 0);
+      return orderStable ? 'stable-top' : 'unstable-background';
     }
 
     function fragmentStatusLabel(fragment) {
@@ -791,14 +805,15 @@
         return '<div class="muted">No activity stack captured</div>';
       }
       return `<table class="props-table">
-        <thead><tr><th>Activity</th><th>memAddr</th><th>Status</th><th>StartInfo</th><th>Fragments</th></tr></thead>
+        <thead><tr><th>Activity</th><th>memAddr</th><th>Status</th><th>Order</th><th>StartInfo</th><th>Fragments</th></tr></thead>
         <tbody>
-          ${activityStack.map((activity) => {
+          ${activityStack.map((activity, index) => {
             const fragments = flattenFragments(activity.fragments || []);
             return `<tr>
               <td class="props-value">${escapeHtml(activity.className || '')}</td>
               <td class="props-value">${escapeHtml(activity.memAddr || '')}</td>
               <td class="props-value">${escapeHtml(activityStatusLabel(activity))}</td>
+              <td class="props-value">${escapeHtml(activityOrderStabilityLabel(activity, index))}</td>
               <td class="props-value">${escapeHtml(activity.startInfo || '-')}</td>
               <td class="props-value">${fragments.length}</td>
             </tr>`;
@@ -833,9 +848,12 @@
       const activityStack = state.snapshot && state.snapshot.activityStack ? state.snapshot.activityStack : [];
       const currentActivity = activityStack.find((activity) => activity.current) || activityStack[0] || null;
       const fragmentSummary = summarizeFragments(activityStack);
+      const orderInfo = getActivityStackOrderInfo();
       return `<h3>Grab Overview</h3>
         <div><b>Current page:</b> screenshot and main tree currently show ${escapeHtml((currentActivity && currentActivity.className) || (state.snapshot && state.snapshot.meta && state.snapshot.meta.activity) || '-')}</div>
         <div><b>Covered info:</b> activity stack and fragment rows marked <code>covered</code> were captured from pages hidden behind the current top activity; they are not rendered in the main screenshot/tree.</div>
+        <div><b>Activity stack order:</b> ${escapeHtml(orderInfo.orderingMode || 'current_first_system_record_order')}</div>
+        <div><b>Order warning:</b> ${escapeHtml(orderInfo.warning || '')}</div>
         <div><b>Fragment summary:</b> total=${fragmentSummary.total}, showing=${fragmentSummary.visible}, covered=${fragmentSummary.covered}</div>
         <h4>Activity Stack</h4>
         ${buildActivityStackTable(activityStack)}

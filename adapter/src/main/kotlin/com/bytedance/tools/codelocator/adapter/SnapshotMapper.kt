@@ -8,6 +8,9 @@ import kotlin.math.max
 
 object SnapshotMapper {
 
+    private const val ACTIVITY_STACK_WARNING =
+        "Only the top activity is considered stable. Background activities keep the captured system record order and may be inaccurate."
+
     fun map(meta: GrabMeta, appJsonRaw: String, screenshotRef: String?, sourceRoot: String? = null): GrabSnapshot {
         val app = Jsons.parseObject(appJsonRaw)
         val activity = getObj(app, "b7", "mActivity")
@@ -37,7 +40,13 @@ object SnapshotMapper {
             renderIndexes = renderIndex,
             semanticsIndexes = semanticsIndex,
             linkIndexes = linkIndex,
-            activityStack = activityStack
+            activityStack = activityStack,
+            activityStackOrderInfo = ActivityStackOrderInfo(
+                orderingMode = "current_first_system_record_order",
+                topActivityStable = activityStack.isNotEmpty(),
+                backgroundActivitiesUnstable = activityStack.size > 1,
+                warning = ACTIVITY_STACK_WARNING
+            )
         )
     }
 
@@ -58,11 +67,15 @@ object SnapshotMapper {
         val parsed = stackArray?.mapNotNull { item ->
             if (item.isJsonObject) parseActivity(item.asJsonObject) else null
         } ?: emptyList()
-        if (parsed.isNotEmpty()) return parsed
+        if (parsed.isNotEmpty()) return annotateActivityStack(parsed)
 
         val currentActivity = getObj(app, "b7", "mActivity") ?: return emptyList()
         val fallback = parseActivity(currentActivity) ?: return emptyList()
-        return listOf(fallback.copy(current = true, covered = false))
+        return annotateActivityStack(listOf(fallback.copy(current = true, covered = false)))
+    }
+
+    private fun annotateActivityStack(items: List<ActivityStackItemDto>): List<ActivityStackItemDto> {
+        return items.mapIndexed { index, item -> item.copy(orderStable = index == 0) }
     }
 
     private fun parseActivity(activityObj: JsonObject): ActivityStackItemDto? {

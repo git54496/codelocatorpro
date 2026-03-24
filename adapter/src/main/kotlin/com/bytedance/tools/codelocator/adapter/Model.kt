@@ -37,7 +37,8 @@ data class GrabSnapshot(
     val renderIndexes: Map<String, ComposeRenderIndexItem> = emptyMap(),
     val semanticsIndexes: Map<String, ComposeSemanticsIndexItem> = emptyMap(),
     val linkIndexes: Map<String, ComposeLinkIndexItem> = emptyMap(),
-    val activityStack: List<ActivityStackItemDto> = emptyList()
+    val activityStack: List<ActivityStackItemDto> = emptyList(),
+    val activityStackOrderInfo: ActivityStackOrderInfo? = null
 )
 
 data class ActivityStackItemDto(
@@ -48,7 +49,15 @@ data class ActivityStackItemDto(
     val covered: Boolean = false,
     val paused: Boolean = false,
     val stopped: Boolean = false,
-    val fragments: List<FragmentNodeDto> = emptyList()
+    val fragments: List<FragmentNodeDto> = emptyList(),
+    val orderStable: Boolean? = null
+)
+
+data class ActivityStackOrderInfo(
+    val orderingMode: String = "current_first_system_record_order",
+    val topActivityStable: Boolean = true,
+    val backgroundActivitiesUnstable: Boolean = true,
+    val warning: String = "Only the top activity is considered stable. Background activities keep the captured system record order and may be inaccurate."
 )
 
 data class FragmentNodeDto(
