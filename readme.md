@@ -2,23 +2,35 @@
 
 `android-ui-grab` 用于抓取 Android Debug App 的界面结构、截图与 Compose 语义信息，并通过本地 Viewer 做定位和分析。
 
-## Open Source Notice / 开源声明
+两步完成接入：
 
-### 中文
+1. android 工程中添加依赖 "com.github.git54496.android-ui-grab-sdk:codelocator-core:v2.1.0-alpha.9"
+2. 通过 homebrew 进行安装：
 
-- 本项目基于开源项目 [bytedance/CodeLocator](https://github.com/bytedance/CodeLocator) 进行二次开发，属于其衍生作品。
-- 本项目采用 **Apache License 2.0** 开源，许可证全文见 [LICENSE](./LICENSE)。
-- 对上游代码的修改、归属和补充声明见 [NOTICE](./NOTICE)。
-- 第三方组件及许可证信息见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
-- 除许可证允许的合理描述外，本项目不主张任何上游项目或其权利人的商标授权或官方背书。
+   brew tap git54496/android-ui-grab
 
-### English
+   brew install android-ui-grab
+3. 开始使用：grab -v
 
-- This project is a derivative work based on [bytedance/CodeLocator](https://github.com/bytedance/CodeLocator).
-- This repository is released under the **Apache License 2.0**. See [LICENSE](./LICENSE).
-- Attribution and modification notices for upstream code are provided in [NOTICE](./NOTICE).
-- Third-party components and their licenses are listed in [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
-- Except for reasonable descriptive use allowed by license terms, no trademark license or endorsement by upstream right holders is implied.
+## 方案优势
+
+`android-ui-grab` 使用 FE 作为 Viewer 的前端展示形态，界面更直观，交互更顺滑，适合在桌面侧快速完成页面结构查看、问题定位和排查分析。
+
+- 执行 `grab -v` 就可以直接弹出 Viewer 界面
+- 同时支持抓取和分析原生 View 与 Compose UI，不需要只围绕传统 View 树做排查。
+- 支持截图联动、树节点查看、反选定位等常用操作，便于从页面现象快速回到具体节点。
+
+下面是 Viewer 的示意图：
+
+![Android UI Grab Viewer](./other/pic2.png)
+
+## 案例展示
+
+下面是一个基于本仓库进行 `grab` 操作后，进行页面分析的示例截图：
+
+![Android UI Grab Case](./other/pic.png)
+
+将工程下 skills 目录中的 skill 复制到 codex 或者 claude code 的 skill 仓库中，即可使用，让 cc 直接读取端上渲染结果
 
 ## 快速开始：从 0 开始接入 `android-ui-grab`
 
@@ -184,3 +196,21 @@ grab_dir: /Users/yourname/.android-ui-grab/grabs/20260326_143015_a1b2c3d4
 - 因此，做问题分析时要区分两类证据：
   - 主截图、主树、主 overlay：当前页面正在展示的信息
   - `activityStack` 中标记为 `covered` 的 activity / fragment：被盖住的上下文信息，只能作为补充线索，不能直接当作当前截图中的可见元素
+
+## Open Source Notice / 开源声明
+
+### 中文
+
+- 本项目基于开源项目 [bytedance/CodeLocator](https://github.com/bytedance/CodeLocator) 进行二次开发，属于其衍生作品。
+- 本项目采用 **Apache License 2.0** 开源，许可证全文见 [LICENSE](./LICENSE)。
+- 对上游代码的修改、归属和补充声明见 [NOTICE](./NOTICE)。
+- 第三方组件及许可证信息见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
+- 除许可证允许的合理描述外，本项目不主张任何上游项目或其权利人的商标授权或官方背书。
+
+### English
+
+- This project is a derivative work based on [bytedance/CodeLocator](https://github.com/bytedance/CodeLocator).
+- This repository is released under the **Apache License 2.0**. See [LICENSE](./LICENSE).
+- Attribution and modification notices for upstream code are provided in [NOTICE](./NOTICE).
+- Third-party components and their licenses are listed in [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
+- Except for reasonable descriptive use allowed by license terms, no trademark license or endorsement by upstream right holders is implied.
