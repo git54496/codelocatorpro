@@ -1,0 +1,9 @@
+{
+  "target": "skills/android-ui-grab-reader/SKILL.md",
+  "target_hash": "sha256:d649fd81e2873b4208c0ec5e131ec7c31e47d0d04d71f25e9af2942b87272e39",
+  "status": "PASS",
+  "blocking_findings": 0,
+  "auditor": "skill-auditor",
+  "audited_at": "2026-03-24T14:23:10+08:00",
+  "summary": "Trigger, inputs, and execution align with Android UI Grab naming, current CodeLocator Grab Context compatibility, and activity/fragment visibility rules."
+}

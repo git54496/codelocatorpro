@@ -1,0 +1,9 @@
+{
+  "target": "skills/android-ui-grab-usage/SKILL.md",
+  "target_hash": "sha256:c3f6b5cbfd7602e60d11d53487e20335fcada606bf2ff3fa529194cafc612f0b",
+  "status": "PASS",
+  "blocking_findings": 0,
+  "auditor": "skill-auditor",
+  "audited_at": "2026-03-24T14:23:10+08:00",
+  "summary": "Trigger and workflow align with Android UI Grab usage naming, current CodeLocator Grab Context compatibility, and activity/fragment context behavior."
+}

@@ -1,6 +1,6 @@
 # Android UI Grab
 
-`android-ui-grab` 当前仓库以 `adapter` 为核心，用于 Android UI 抓取、定位与可视化分析；Android SDK 已拆分到独立仓库 `android-ui-grab-sdk`。
+`android-ui-grab` 用于抓取 Android Debug App 的界面结构、截图与 Compose 语义信息，并通过本地 Viewer 做定位和分析。
 
 ## Open Source Notice / 开源声明
 
@@ -20,132 +20,153 @@
 - Third-party components and their licenses are listed in [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
 - Except for reasonable descriptive use allowed by license terms, no trademark license or endorsement by upstream right holders is implied.
 
-## 1 分钟快速开始（本地）
+## 快速开始：从 0 开始接入 `android-ui-grab`
 
-```bash
-./build.sh 49622
+如果你的目标是“让一台 Android 手机上的 Debug App 能被 `grab` 抓取并在 Viewer 里分析”，推荐直接按下面这条最短链路接入。整套流程可以理解为两部分：
+
+- 先给 Android App 接入 `android-ui-grab-sdk`
+- 再在分析机上安装 `grab` CLI 并执行一次抓取验证
+
+### 第 1 步：给 Android 工程加 JitPack 仓库
+
+在 Android 工程的仓库配置里加入 `jitpack.io`。例如：
+
+```groovy
+repositories {
+    google()
+    mavenCentral()
+    maven { url 'https://jitpack.io' }
+}
 ```
 
-启动后会自动打开浏览器，默认地址 `http://127.0.0.1:49622/`。
+如果你已经在 `settings.gradle` 或公司统一脚本里集中管理仓库，只需要确保业务模块最终能解析到 `https://jitpack.io` 即可。
 
-## Homebrew 安装（跨机器）
+### 第 2 步：给 Debug 包加 `android-ui-grab-sdk`
 
-### 前置条件
+建议只在 Debug 变体接入，这样不会把抓取能力带进 Release 包：
 
-- macOS + Homebrew。
-- 已安装并可用 `adb`（建议 `brew install --cask android-platform-tools`）。
-- 手机已开启开发者模式和 USB 调试，且 `adb devices` 可见。
-- 待抓取 App 已集成/接入 `android-ui-grab-sdk` 能力。
-- 安装机可访问 `github.com` 和 `repo.maven.apache.org`（首次安装会拉取依赖并本地编译）。
+```groovy
+dependencies {
+    debugImplementation "com.github.git54496.android-ui-grab-sdk:codelocator-core:v2.1.0-alpha.9"
+}
+```
 
-### 安装步骤
+其中：
+
+- `codelocator-core` 是必需依赖。
+- `codelocator-model` 已经由 `codelocator-core` 传递带上；只有你在业务代码里直接使用 model 包内类型时，才需要额外显式声明。
+
+### 第 3 步：安装 `grab` CLI
+
+如果你还没安装 CLI，先在分析机上执行：
 
 ```bash
 brew tap git54496/android-ui-grab
 brew install android-ui-grab
 ```
 
-对应 tap 仓库：`https://github.com/git54496/homebrew-android-ui-grab`
+说明：
 
-安装后直接抓屏：
+- 更完整的安装说明见下文“Homebrew 安装（跨机器）”。
+
+### 第 4 步：安装 Debug 包并确认设备连通
 
 ```bash
-grab
+adb devices
+./gradlew :app:installDebug
 ```
 
-`grab` 无参数时默认等价于 `grab live`。
-Homebrew Formula 名称已改为 `android-ui-grab`，但安装后的 CLI 命令仍然是 `grab`。
+要求：
 
-默认抓取结果会写到：
+- 手机已开启开发者模式和 USB 调试。
+- `adb devices` 能看到目标设备。
+- 当前前台运行的是刚接入 `android-ui-grab-sdk` 的 Debug App。
 
-```text
-~/.android-ui-grab/grabs/<grab_id>/
-```
+### 第 5 步：执行一次抓取验证接入是否成功
 
-`grab file` 在未指定 `--path` 时，会优先读取：
-
-```text
-~/.android-ui-grab/historyFile
-```
-
-同时兼容回退读取旧路径 `~/.codeLocator_main/historyFile`。
-
-如果你希望抓取成功后自动打开 Viewer，可以直接执行：
+完成前面几步后，直接运行：
 
 ```bash
 grab -v
 ```
 
-## 目录结构
+验证通过的标志：
 
-- `adapter`
-  - CLI + MCP(stdio) + 本地 Viewer HTTP 服务（内置前端页面资源）。
-- `build.sh`
-  - 一键构建 adapter 并启动本地 Viewer。
-- `../android-ui-grab-sdk`（独立仓库）
-  - Android 侧抓取、分析、协议模型与动作执行核心逻辑。
+- 命令执行后能产出新的 `grab_id`。
+- 浏览器里能打开 Viewer。
+- Viewer 左侧能看到当前页面截图和 View 树。
+- Compose 页面还能看到 `compose_index.json` / Compose Semantics 相关信息。
 
-## 手动构建 Adapter
+### 第 6 步：接入后常见增强项
 
-```bash
-cd adapter
-./gradlew clean installDist --no-daemon
-```
-
-产物路径：
-
-```bash
-adapter/build/install/grab/bin/grab
-```
-
-## 本地联调 `android-ui-grab-sdk`
-
-如果你在同级目录维护 `../TestApplication` 和 `../android-ui-grab-sdk`，推荐用下面这条链路做本地验证：
-
-```bash
-cd ../TestApplication
-bash scripts/publish-local-codelocator.sh
-./gradlew :app:installDebug -PuseLocalCodeLocatorMaven=true
-
-cd ../android-ui-grab
-bash dev-grab.sh -v
-```
-
-说明：
-
-- `publish-local-codelocator.sh` 会把本地 Android SDK 源码发布到 `mavenLocal()`。
-- `dev-grab.sh` 会构建当前仓库里的 adapter，并默认把 `CODELOCATOR_SOURCE_ROOT` 指向 `../TestApplication`，这样 Compose source path 会直接归一化到测试工程源码。
+- 需要更好的 XML / Dialog / Popup / Toast / ViewHolder 定位信息时，再评估补充 Lancet 相关能力。
+- 需要团队内跨机器分发时，业务 App 只负责接入 SDK，分析侧统一安装 `grab` CLI 即可
 
 ## CLI 常用命令
 
 ```bash
-BIN="./adapter/build/install/grab/bin/grab"
-
 # 实时抓取（可选 --device-serial）
-$BIN
-$BIN live --device-serial <optional>
-$BIN -v
-$BIN live --device-serial <optional> --viewer
+grab
+grab live --device-serial <optional>
+grab -v
+grab live --device-serial <optional> --viewer
 
 # 从文件导入抓取（可选 --path）
-$BIN file --path <optional>
-$BIN file --path <optional> --viewer
+grab file --path <optional>
+grab file --path <optional> --viewer
 
 # 列出抓取记录
-$BIN list
+grab list
 
 # 打开 Viewer（指定 grab_id）
-$BIN viewer open --grab-id <grab_id>
+grab viewer open --grab-id <grab_id>
 
 # 启动 Viewer 服务
-$BIN viewer serve --port 49622
+grab viewer serve --port 49622
 
 # 启动 MCP stdio 服务
-$BIN mcp
+grab mcp
 
 # 查询 Compose 语义节点（node_id 或 compose_key）
-$BIN inspect compose-node --grab-id <grab_id> --node-id <compose_node_id_or_compose_key>
+grab inspect compose-node --grab-id <grab_id> --node-id <compose_node_id_or_compose_key>
 ```
+
+补充说明：
+
+- `grab` 成功后会把抓取结果写到 `~/.android-ui-grab/grabs/<grab_id>/`。
+- 常见文件包括 `snapshot.json`、`index.json`、`screenshot.png`，以及 Compose 相关的 `compose_index.json`、`component_index.json`、`render_index.json`、`semantics_index.json`、`link_index.json`。
+- 如果你只拿到了 `grab_id`，通常就可以直接去 `~/.android-ui-grab/grabs/<grab_id>/` 找对应产物。
+
+## 当前工程内的 CodingAgent 分析 Skill
+
+当前工程在 `skills/` 下提供了面向 CodingAgent 的 UI 问题分析 skill，目标不是给业务 App 运行，而是让 Agent 能基于 `grab` 产物做可追溯的 UI 排查。
+
+- `android-ui-grab-reader`：当你已经有 `grab_id`、`grab_dir`、`CodeLocator Grab Context` 或一组本地产物路径时，直接读取 `snapshot.json`、截图、View/Compose 索引，分析具体 UI 问题。
+- `android-ui-grab-usage`：当你只有自然语言问题描述、还没有明确的 `grab_id` 或目标节点时，先调用 `grab` 获取最新数据，再根据描述推断候选 View，必要时继续转交 `android-ui-grab-reader` 做正式分析。
+
+常见使用 case：
+
+```text
+grab_id = 20260326_143015_a1b2c3d4，请分析首页顶部标题显示错位的问题
+```
+
+```text
+[CodeLocator Grab Context]
+grab_id: 20260326_143015_a1b2c3d4
+grab_dir: /Users/yourname/.android-ui-grab/grabs/20260326_143015_a1b2c3d4
+
+请分析“立即支付”按钮点击无响应的问题
+```
+
+```text
+我的标题 view 展示有问题，帮我先抓一下再分析
+```
+
+推荐给 Agent 的描述方式：
+
+- 已有抓取结果时：直接给 `grab_id`，再补一句“请分析 xxx 问题”。
+- 已知目标更精确时：再补 `memAddr`、`idStr`、`text`、`nodeId`、`composeKey`、`testTag` 等定位信息。
+- 只有自然语言现象时：直接描述页面、区域和异常表现，让 `android-ui-grab-usage` 先抓取、再缩小候选范围。
 
 ## Compose 兼容说明
 
@@ -163,28 +184,3 @@ $BIN inspect compose-node --grab-id <grab_id> --node-id <compose_node_id_or_comp
 - 因此，做问题分析时要区分两类证据：
   - 主截图、主树、主 overlay：当前页面正在展示的信息
   - `activityStack` 中标记为 `covered` 的 activity / fragment：被盖住的上下文信息，只能作为补充线索，不能直接当作当前截图中的可见元素
-
-## `build.sh` 参数
-
-```bash
-./build.sh [port] [grab_id]
-```
-
-- `port`：可选，默认 `49622`。
-- `grab_id`：可选，传入后自动打开对应抓取记录页面。
-
-## Homebrew Tap 维护
-
-配方已拆分到独立仓库：
-
-- `https://github.com/git54496/homebrew-android-ui-grab`
-- `Formula/android-ui-grab.rb`
-
-当前仓库已引入统一版本文件 `VERSION`，`grab --version` 与 adapter 构建版本会保持一致。正式发布 Homebrew 升级链路时，按以下流程操作：
-
-1. 更新 `VERSION`，推送 `android-ui-grab`，并创建对应 tag，例如 `v0.2.7`。
-2. 进入 tap 仓库 `homebrew-android-ui-grab`，执行 `./scripts/update_grab_formula.sh 0.2.7`。
-3. 提交并推送 tap 仓库中的 `Formula/android-ui-grab.rb`。
-4. 用户执行 `brew update && brew upgrade android-ui-grab`。
-
-说明：历史上安装过旧 Formula `grab` 的机器，迁移到新包名时需要一次性执行 `brew uninstall grab && brew install android-ui-grab`；之后即可正常走 `brew upgrade android-ui-grab`。
