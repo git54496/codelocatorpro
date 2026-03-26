@@ -82,6 +82,17 @@ class AdbGatewayTests {
         assertEquals("com.demo.app", result)
     }
 
+    @Test
+    fun `exec process drains large stdout without timing out`() {
+        val output = AdbGateway.execProcess(
+            listOf("/bin/sh", "-lc", "yes 0123456789abcdef | head -c 131072"),
+            timeoutMs = 5_000
+        )
+
+        assertEquals(131072, output.length)
+        assertTrue(output.startsWith("0123456789abcdef"))
+    }
+
     private class FakeCommandRunner(
         private val dumpsysOutput: String,
         private val broadcastPayload: String

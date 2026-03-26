@@ -2,11 +2,13 @@ package com.bytedance.tools.codelocator.adapter
 
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.file.Files
 import java.util.Base64
 import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPInputStream
+import kotlin.concurrent.thread
 
 class AdbGateway(
     private val store: GrabStore,
@@ -349,14 +351,24 @@ class AdbGateway(
     }
 
     companion object {
-        private fun execProcess(command: List<String>, timeoutMs: Long): String {
+        internal fun execProcess(command: List<String>, timeoutMs: Long): String {
             val process = ProcessBuilder(command).redirectErrorStream(true).start()
+            val output = ByteArrayOutputStream()
+            val reader = thread(name = "grab-process-reader", start = true) {
+                process.inputStream.use { input ->
+                    output.use { buffer ->
+                        input.copyTo(buffer)
+                    }
+                }
+            }
             val ok = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
             if (!ok) {
                 process.destroyForcibly()
+                reader.join(1_000)
                 throw AdapterException("TIMEOUT", "Command timeout: ${command.joinToString(" ")}")
             }
-            val out = process.inputStream.bufferedReader().readText()
+            reader.join()
+            val out = output.toString(Charsets.UTF_8)
             if (process.exitValue() != 0) {
                 throw AdapterException("DECODE_ERROR", "Command failed: ${command.joinToString(" ")}", mapOf("output" to out))
             }
