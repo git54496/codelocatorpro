@@ -16,7 +16,7 @@
 
 这个开源工程的一个很实用的点是：它天然适合和 AI 配合使用，帮助你做 UI 问题排查。你可以把它理解成“给 AI 一套能看页面、看树结构、看节点地址的工具链”。
 
-工程里的 [android-ui-grab/skills](/Users/yebingyue/code/baron/android-ui-grab-project/android-ui-grab/skills) 目录已经内置了两个可直接复用的 skill。把这两个 skill 目录拷贝到你自己的 skill 库里，就可以开始让 AI 调用它们做 UI 排障。
+工程里的 skills 目录已经内置了两个可直接复用的 skill。把这两个 skill 目录拷贝到你自己的 skill 库里，就可以开始让 AI 调用它们做 UI 排障。
 
 这两个 skill 分别是：
 
@@ -93,7 +93,7 @@
 
 ![Android UI Grab Viewer](./other/pic2.png)
 
-通过 grab -v 执行 grab 操作+唤起上图的 viewer 页面    
+通过 grab -v 执行 grab 操作+唤起上图的 viewer 页面
 
 ## 案例展示
 
