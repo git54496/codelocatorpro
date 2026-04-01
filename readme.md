@@ -12,6 +12,75 @@
    brew install android-ui-grab
 3. 开始使用：grab -v
 
+## AI 友好
+
+这个开源工程的一个很实用的点是：它天然适合和 AI 配合使用，帮助你做 UI 问题排查。你可以把它理解成“给 AI 一套能看页面、看树结构、看节点地址的工具链”。
+
+工程里的 [android-ui-grab/skills](/Users/yebingyue/code/baron/android-ui-grab-project/android-ui-grab/skills) 目录已经内置了两个可直接复用的 skill。把这两个 skill 目录拷贝到你自己的 skill 库里，就可以开始让 AI 调用它们做 UI 排障。
+
+这两个 skill 分别是：
+
+### `android-ui-grab-usage`
+
+这是“先抓再分析”的编排型 skill。  
+适合你只有自然语言描述、还没有明确 `grab_id`、`memAddr`、`id` 或 `text` 的情况，例如“标题展示有问题”“这个按钮点不动”“帮我先抓一下再看看哪个 view 异常”。
+
+它会做的事大致是：
+
+- 先判断你是否已经提供可用的 grab_id
+- 如果没有，就直接调用 `grab` 抓取最新页面
+- 结合截图、View 树、Activity / Fragment 信息推断候选节点
+- 如果无法唯一定位，再让你补充 `memAddr`、`id` 或 `text`
+- 目标明确后，再把正式分析交给 `android-ui-grab-reader`
+
+### `android-ui-grab-reader`
+
+这是“基于已有 grab 结果做结构化分析”的读取型 skill。  
+适合你已经有 `grab_id`、`grab_dir`、本地路径，或者已经拿到了 `CodeLocator Grab Context`，想让 AI 直接分析页面结构、节点信息、Compose 索引、Activity / Fragment 上下文。
+
+它更适合做这类事情：
+
+- 根据 `grab_id` 读取 `snapshot.json`、`index.json`、截图和 Compose 相关索引
+- 分析某个 View 或 Compose 节点为什么显示异常
+- 根据 `memAddr`、`idStr`、`text`、`nodeId`、`testTag` 等信息定点定位
+- 输出带证据的结论，而不是只给猜测
+
+经典用法通常有三种：
+
+### 1. 直接告诉 AI：“UI 有问题，去 grab”
+
+这是最省事的用法。  
+你只需要告诉 AI 某个页面 UI 有问题，让它去 `grab`，AI 就可以自己调用 `grab` 工具抓取当前手机页面，然后继续分析抓到的 View 树、Compose 树、Activity / Fragment 信息，自己定位可疑节点和结构问题。
+
+适合场景：
+
+- 你还没抓数据，想让 AI 从抓取到分析一条龙完成
+- 你只能描述“标题不对”“按钮错位”“某个 view 没显示”这类现象
+
+### 2. 你先抓结果，再把 `grab_id` 交给 AI 分析
+
+这是最常见的协作方式。  
+你先自己执行 `grab` 命令，拿到一次抓取结果，然后把对应的 `grab_id` 提供给 AI，再直接描述你想排查的问题，例如“帮我分析为什么这个标题没有显示”“帮我看这个按钮为什么点不到”“帮我找 XXX view 在哪一层”。
+
+这样做的好处是：
+
+- 你可以明确指定要分析哪一次抓取结果
+- AI 不需要重新抓取，能直接进入结构分析
+- 很适合在已经复现过问题、并且抓取结果已经保留下来的情况下使用
+
+### 3. 告诉 AI `grab_id` + `memAddr`，做更精确的定点分析
+
+这是更进阶的用法。使用 grab -v 命令进行 grab 操作同时唤起 viewer 页面。然后拿到 `grab_id` 、`memAddr 等信息`  
+如果你已经在 Viewer 里定位到某个可疑节点，可以把 `grab_id` 和对应的 `memAddr` 一起告诉 AI，让它围绕这个具体节点继续分析上下文、父子层级、可见性、尺寸、绑定信息或路径问题。
+
+其中 `memAddr` 可以直接在 Viewer 中看到。有了 `grab_id` 和 `memAddr`，AI 通常能更快缩小范围，避免在整棵树里做大范围搜索。
+
+一句话说：
+
+- 懒人模式：直接让 AI 去 `grab`
+- 协作模式：你提供 `grab_id`，AI 帮你分析问题
+- 专家模式：你提供 `grab_id` + `memAddr`，AI 做节点级精确排查
+
 ## 方案优势
 
 `android-ui-grab` 使用 FE 作为 Viewer 的前端展示形态，界面更直观，交互更顺滑，适合在桌面侧快速完成页面结构查看、问题定位和排查分析。
@@ -24,9 +93,11 @@
 
 ![Android UI Grab Viewer](./other/pic2.png)
 
+通过 grab -v 执行 grab 操作+唤起上图的 viewer 页面    
+
 ## 案例展示
 
-下面是一个基于本仓库进行 `grab` 操作后，进行页面分析的示例截图：
+下面是一个基于本仓库进行 `grab` 操作后，进行页面分析的 AI 使用截图：
 
 ![Android UI Grab Case](./other/pic.png)
 
