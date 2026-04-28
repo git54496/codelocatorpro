@@ -59,6 +59,20 @@ class ParserTests {
     }
 
     @Test
+    fun `map snapshot view translation`() {
+        val appJson = """
+            {"bd":"com.demo.app","b7":{"af":"7f0a0000","ag":"MainActivity","cj":[{"af":"7f0a0001","ag":"android.widget.FrameLayout","d":0,"f":0,"e":300,"g":600,"a":[{"af":"7f0a0002","ag":"android.widget.TextView","d":10,"f":20,"e":110,"g":60,"l":12.5,"m":-4.0,"a":[]}]}]}}
+        """.trimIndent()
+        val meta = GrabMeta("grab_translation", "file", null, "com.demo.app", "MainActivity", System.currentTimeMillis(), null)
+
+        val snapshot = SnapshotMapper.map(meta, appJson, "screenshot.png")
+        val translated = snapshot.uiTree.single().children.single()
+
+        assertEquals(12.5, translated.translationX)
+        assertEquals(-4.0, translated.translationY)
+    }
+
+    @Test
     fun `map snapshot compose tree and compose index`() {
         val appJson = """
             {"bd":"com.demo.app","b7":{"af":"7f0a0000","ag":"MainActivity","cj":[{"af":"7f0a1000","ag":"androidx.compose.ui.platform.ComposeView","d":0,"f":0,"e":300,"g":600,"b5":[{"a":"root_sem","b":10,"c":20,"d":210,"e":320,"f":"Home","g":"home_desc","h":"screen_home","i":1,"j":true,"q":["CLICK","FOCUS"],"r":[{"nodeId":"cta_sem","left":100,"top":200,"right":220,"bottom":260,"text":"Pay Now","contentDescription":"pay now","testTag":"btn_pay","clickable":true,"enabled":true,"actions":["CLICK"]}]}],"a":[]}]}}

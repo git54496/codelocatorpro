@@ -19,6 +19,8 @@ data class ViewNodeDto(
     val top: Int = 0,
     val width: Int = 0,
     val height: Int = 0,
+    val translationX: Double = 0.0,
+    val translationY: Double = 0.0,
     val visible: Boolean = true,
     val alpha: Double = 1.0,
     val composeCapture: ComposeCaptureDto? = null,

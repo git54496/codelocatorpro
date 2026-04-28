@@ -79,10 +79,46 @@
     .twisty { width:12px; color:var(--muted); user-select:none; text-align:center; cursor:pointer; font-size:11px; }
     .twisty.placeholder { visibility:hidden; cursor:default; }
     .tree-label { white-space:nowrap; }
-    #canvasWrap { position:relative; overflow:hidden; background:#e8eef7; display:flex; align-items:center; justify-content:center; }
+    #canvasWrap { position:relative; overflow:auto; background:#e8eef7; display:flex; align-items:center; justify-content:center; }
     #stage { position:relative; flex:none; }
     #screenImg { display:block; user-select:none; -webkit-user-drag:none; }
     #overlay { position:absolute; inset:0; pointer-events:auto; cursor:crosshair; }
+    .canvas-tools {
+      position:absolute;
+      top:10px;
+      right:10px;
+      z-index:4;
+      display:flex;
+      align-items:center;
+      gap:6px;
+      padding:6px;
+      border:1px solid rgba(197, 211, 231, 0.9);
+      border-radius:10px;
+      background:rgba(255, 255, 255, 0.92);
+      box-shadow:0 8px 18px rgba(24, 33, 51, 0.12);
+      backdrop-filter: blur(8px);
+    }
+    .canvas-tools button {
+      min-width:30px;
+      height:30px;
+      border:1px solid #c5d3e7;
+      background:#fff;
+      color:#28415f;
+      border-radius:7px;
+      cursor:pointer;
+      font-size:14px;
+      font-weight:700;
+    }
+    .canvas-tools button:hover:not(:disabled) { border-color:#0b84f3; color:#0b84f3; }
+    .canvas-tools button:disabled { cursor:not-allowed; opacity:0.45; }
+    #zoomReset { min-width:48px; font-size:12px; }
+    #zoomLabel {
+      min-width:42px;
+      text-align:center;
+      color:#28415f;
+      font-size:12px;
+      font-weight:700;
+    }
     #loadingMask {
       position: absolute;
       inset: 0;
@@ -164,6 +200,12 @@
     <div class="splitter" id="leftSplitter" title="Drag to resize"></div>
     <div class="panel" id="canvasWrap">
       <div id="loadingMask">Loading...</div>
+      <div class="canvas-tools" id="canvasTools" aria-label="Screenshot zoom controls">
+        <button id="zoomOut" type="button" title="缩小" aria-label="缩小截图">−</button>
+        <span id="zoomLabel">100%</span>
+        <button id="zoomIn" type="button" title="放大" aria-label="放大截图">+</button>
+        <button id="zoomReset" type="button" title="复位" aria-label="复位截图缩放">复位</button>
+      </div>
       <div id="stage">
         <img id="screenImg" alt="screenshot" />
         <canvas id="overlay"></canvas>
@@ -184,6 +226,8 @@
       treeMode: 'view',
       showFrameworkNodes: false,
       scale: 1,
+      baseScale: 1,
+      zoomFactor: 1,
       collapsed: new Set(),
       geomList: [],
       geomByMem: {},
@@ -212,8 +256,13 @@
     const img = document.getElementById('screenImg');
     const overlay = document.getElementById('overlay');
     const canvasWrap = document.getElementById('canvasWrap');
+    const canvasTools = document.getElementById('canvasTools');
     const stageEl = document.getElementById('stage');
     const loadingMask = document.getElementById('loadingMask');
+    const zoomOutBtn = document.getElementById('zoomOut');
+    const zoomInBtn = document.getElementById('zoomIn');
+    const zoomResetBtn = document.getElementById('zoomReset');
+    const zoomLabel = document.getElementById('zoomLabel');
     const grabBtn = document.getElementById('grabBtn');
     const exportAgentBtn = document.getElementById('exportAgentBtn');
     const toastEl = document.getElementById('toast');
@@ -221,6 +270,9 @@
     const metaEl = document.getElementById('meta');
     const MIN_SIDE_WIDTH = 220;
     const MIN_CENTER_WIDTH = 320;
+    const MIN_ZOOM_FACTOR = 0.25;
+    const MAX_ZOOM_FACTOR = 8;
+    const ZOOM_STEP = 1.25;
     let resizing = null;
     const RAW_FIELD_MAP = {
       a: 'mChildren',
@@ -323,6 +375,7 @@
       state.snapshot = await snapRes.json();
       state.selected = null;
       state.overviewActive = true;
+      state.zoomFactor = 1;
       state.collapsed = new Set();
       state.hitCycle = null;
       buildGeometryIndex();
@@ -341,11 +394,17 @@
       };
       img.onerror = () => {
         img.removeAttribute('src');
+        state.baseScale = 1;
+        state.scale = 1;
+        state.zoomFactor = 1;
+        canvasWrap.style.justifyContent = 'center';
+        canvasWrap.style.alignItems = 'center';
         stageEl.style.width = '0px';
         stageEl.style.height = '0px';
         overlay.width = 0;
         overlay.height = 0;
         ctx.clearRect(0, 0, 1, 1);
+        updateZoomControls();
         setLoading(false);
       };
       img.src = `/api/grab/${grabId}/screenshot?_=${Date.now()}`;
@@ -395,14 +454,18 @@
           const top = Number(n.top || 0);
           const width = Number(n.width || 0);
           const height = Number(n.height || 0);
-          const absLeft = parentAbsLeft + left;
-          const absTop = parentAbsTop + top;
+          const translationX = Number(n.translationX || 0);
+          const translationY = Number(n.translationY || 0);
+          const absLeft = parentAbsLeft + left + translationX;
+          const absTop = parentAbsTop + top + translationY;
           const geom = {
             memAddr: n.memAddr,
             absLeft,
             absTop,
             width,
             height,
+            translationX,
+            translationY,
             depth,
             order: order++,
             visible: n.visible !== false,
@@ -502,23 +565,84 @@
       state.compose = compose;
     }
 
-    function fitImageToViewport() {
+    function fitImageToViewport(options = {}) {
       if (!img.naturalWidth || !img.naturalHeight) return;
       const w = canvasWrap.clientWidth;
       const h = canvasWrap.clientHeight;
       if (w <= 0 || h <= 0) return;
 
-      const scale = Math.min(w / img.naturalWidth, h / img.naturalHeight);
+      state.baseScale = Math.min(w / img.naturalWidth, h / img.naturalHeight);
+      applyImageScale(options);
+    }
+
+    function getCanvasCenterImagePoint() {
+      if (!state.scale) return null;
+      const wrapRect = canvasWrap.getBoundingClientRect();
+      const stageRect = stageEl.getBoundingClientRect();
+      return {
+        x: (wrapRect.left + wrapRect.width / 2 - stageRect.left) / state.scale,
+        y: (wrapRect.top + wrapRect.height / 2 - stageRect.top) / state.scale
+      };
+    }
+
+    function scrollCanvasToImagePoint(point) {
+      if (!point) return;
+      const maxScrollLeft = Math.max(0, canvasWrap.scrollWidth - canvasWrap.clientWidth);
+      const maxScrollTop = Math.max(0, canvasWrap.scrollHeight - canvasWrap.clientHeight);
+      canvasWrap.scrollLeft = clamp(point.x * state.scale - canvasWrap.clientWidth / 2, 0, maxScrollLeft);
+      canvasWrap.scrollTop = clamp(point.y * state.scale - canvasWrap.clientHeight / 2, 0, maxScrollTop);
+    }
+
+    function syncCanvasToolsPosition() {
+      canvasTools.style.transform = `translate(${canvasWrap.scrollLeft}px, ${canvasWrap.scrollTop}px)`;
+    }
+
+    function applyImageScale(options = {}) {
+      if (!img.naturalWidth || !img.naturalHeight) {
+        updateZoomControls();
+        return;
+      }
+      const centerPoint = options.keepCenter ? getCanvasCenterImagePoint() : null;
+      const scale = state.baseScale * state.zoomFactor;
       const renderW = Math.max(1, Math.floor(img.naturalWidth * scale));
       const renderH = Math.max(1, Math.floor(img.naturalHeight * scale));
 
       state.scale = scale;
+      canvasWrap.style.justifyContent = renderW > canvasWrap.clientWidth ? 'flex-start' : 'center';
+      canvasWrap.style.alignItems = renderH > canvasWrap.clientHeight ? 'flex-start' : 'center';
       stageEl.style.width = `${renderW}px`;
       stageEl.style.height = `${renderH}px`;
       img.style.width = `${renderW}px`;
       img.style.height = `${renderH}px`;
       overlay.width = renderW;
       overlay.height = renderH;
+      scrollCanvasToImagePoint(centerPoint);
+      syncCanvasToolsPosition();
+      updateZoomControls();
+    }
+
+    function setZoomFactor(nextZoomFactor) {
+      if (!img.naturalWidth || !img.naturalHeight) return;
+      state.zoomFactor = clamp(nextZoomFactor, MIN_ZOOM_FACTOR, MAX_ZOOM_FACTOR);
+      applyImageScale({ keepCenter: true });
+      redraw();
+    }
+
+    function resetZoom() {
+      state.zoomFactor = 1;
+      fitImageToViewport();
+      canvasWrap.scrollLeft = 0;
+      canvasWrap.scrollTop = 0;
+      syncCanvasToolsPosition();
+      redraw();
+    }
+
+    function updateZoomControls() {
+      const hasImage = Boolean(img.naturalWidth && img.naturalHeight);
+      zoomOutBtn.disabled = !hasImage || state.zoomFactor <= MIN_ZOOM_FACTOR;
+      zoomInBtn.disabled = !hasImage || state.zoomFactor >= MAX_ZOOM_FACTOR;
+      zoomResetBtn.disabled = !hasImage || state.zoomFactor === 1;
+      zoomLabel.textContent = `${Math.round(state.zoomFactor * 100)}%`;
     }
 
     function getVisibleComponentRoots() {
@@ -728,6 +852,9 @@
             || geom.absTop !== Number(entity.top || 0)
             || geom.width !== Number(entity.width || 0)
             || geom.height !== Number(entity.height || 0));
+        const translationLine = geom && (geom.translationX !== 0 || geom.translationY !== 0)
+          ? `<div><b>translation:</b> (${geom.translationX}, ${geom.translationY})</div>`
+          : '';
         const composeTable = buildComposeTable(entity.composeNodes || []);
         const decodedRows = buildDecodedRawRows(entity.raw);
         const decodedTable = decodedRows.length
@@ -742,6 +869,7 @@
           <div><b>text:</b> ${entity.text || '-'}</div>
           <div><b>frame:</b> ${frameLine}</div>
           ${localFrameDiffers ? `<div><b>localFrame:</b> (${entity.left}, ${entity.top}, ${entity.width}, ${entity.height})</div>` : ''}
+          ${translationLine}
           <div><b>alpha:</b> ${entity.alpha}</div>
           <div><b>visible:</b> ${entity.visible}</div>
           <h4>Compose Semantics</h4>
@@ -1078,7 +1206,7 @@
     function setPaneWidths(left, right) {
       layoutEl.style.setProperty('--left-pane-width', `${Math.round(left)}px`);
       layoutEl.style.setProperty('--right-pane-width', `${Math.round(right)}px`);
-      fitImageToViewport();
+      fitImageToViewport({ keepCenter: true });
       redraw();
     }
 
@@ -1153,7 +1281,7 @@
     };
 
     window.addEventListener('resize', () => {
-      fitImageToViewport();
+      fitImageToViewport({ keepCenter: true });
       redraw();
     });
 
@@ -1185,6 +1313,9 @@
     };
 
     overviewBtn.onclick = () => activateOverview();
+    zoomOutBtn.onclick = () => setZoomFactor(state.zoomFactor / ZOOM_STEP);
+    zoomInBtn.onclick = () => setZoomFactor(state.zoomFactor * ZOOM_STEP);
+    zoomResetBtn.onclick = () => resetZoom();
 
     grabBtn.onclick = async () => {
       const original = grabBtn.textContent;
@@ -1319,8 +1450,11 @@
     window.addEventListener('mousemove', (e) => onResizeMove(e.clientX));
     window.addEventListener('mouseup', () => endResize());
     window.addEventListener('blur', () => endResize());
+    canvasWrap.addEventListener('scroll', () => syncCanvasToolsPosition());
 
     updateLeftPanelActions();
+    syncCanvasToolsPosition();
+    updateZoomControls();
     boot();
   </script>
 </body>

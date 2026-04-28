@@ -316,6 +316,8 @@ object SnapshotMapper {
         val bottom = getInt(viewObj, "g", "mBottom") ?: top
         val width = max(0, right - left)
         val height = max(0, bottom - top)
+        val translationX = getDouble(viewObj, "l", "mTranslationX") ?: 0.0
+        val translationY = getDouble(viewObj, "m", "mTranslationY") ?: 0.0
 
         val visibility = getString(viewObj, "ab", "mVisibility")
         val visible = parseVisibility(visibility)
@@ -343,6 +345,8 @@ object SnapshotMapper {
             top = top,
             width = width,
             height = height,
+            translationX = translationX,
+            translationY = translationY,
             visible = visible,
             alpha = alpha,
             composeCapture = composeCapture,
